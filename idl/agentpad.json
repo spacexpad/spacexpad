@@ -1,0 +1,1956 @@
+{
+  "version": "0.2.0",
+  "name": "agentpad",
+  "instructions": [
+    {
+      "name": "initialize_global",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "buyback_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "treasury_wallet",
+          "type": "pubkey"
+        },
+        {
+          "name": "gate_signer",
+          "type": "pubkey"
+        }
+      ],
+      "discriminator": [
+        47,
+        225,
+        15,
+        112,
+        86,
+        51,
+        190,
+        231
+      ]
+    },
+    {
+      "name": "set_platform_token",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "platform_token_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "platform_pool_id",
+          "type": "pubkey"
+        }
+      ],
+      "discriminator": [
+        22,
+        39,
+        209,
+        106,
+        24,
+        63,
+        254,
+        254
+      ]
+    },
+    {
+      "name": "set_public_launches_enabled",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ],
+      "discriminator": [
+        115,
+        114,
+        36,
+        138,
+        241,
+        198,
+        219,
+        228
+      ]
+    },
+    {
+      "name": "set_token_metadata",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "launch_pool",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "metadata",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "metadata_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "sysvar_instructions",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "symbol",
+          "type": "string"
+        },
+        {
+          "name": "uri",
+          "type": "string"
+        }
+      ],
+      "discriminator": [
+        218,
+        126,
+        122,
+        193,
+        220,
+        149,
+        103,
+        39
+      ]
+    },
+    {
+      "name": "add_dividend_asset",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "asset_mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "whitelisted_asset",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "symbol",
+          "type": "string"
+        },
+        {
+          "name": "decimals",
+          "type": "u8"
+        }
+      ],
+      "discriminator": [
+        97,
+        255,
+        22,
+        189,
+        18,
+        244,
+        212,
+        12
+      ]
+    },
+    {
+      "name": "set_dividend_asset_status",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "whitelisted_asset",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ],
+      "discriminator": [
+        254,
+        111,
+        219,
+        224,
+        123,
+        23,
+        57,
+        35
+      ]
+    },
+    {
+      "name": "create_launch",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "whitelisted_asset",
+          "isMut": false,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "launch_pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "sol_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "dividend_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "whitelisted_asset_2",
+          "isMut": false,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "dividend_vault_2",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "creator",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "amm_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "gate_signer",
+          "isMut": false,
+          "isSigner": true,
+          "isOptional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "total_shares",
+          "type": "u64"
+        },
+        {
+          "name": "price_per_share",
+          "type": "u64"
+        },
+        {
+          "name": "marketing_wallet",
+          "type": "pubkey"
+        },
+        {
+          "name": "reward_mint",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "reward_mint_2",
+          "type": {
+            "option": "pubkey"
+          }
+        }
+      ],
+      "discriminator": [
+        239,
+        223,
+        255,
+        134,
+        39,
+        121,
+        127,
+        62
+      ]
+    },
+    {
+      "name": "mint_shares",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "launch_pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "sol_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "minter_record",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "inviter",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "inviter_record",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "agent_gate_signer",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "shares_count",
+          "type": "u64"
+        }
+      ],
+      "discriminator": [
+        24,
+        196,
+        132,
+        0,
+        183,
+        158,
+        216,
+        142
+      ]
+    },
+    {
+      "name": "refund_shares",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "launch_pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "sol_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "minter_record",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "agent_gate_signer",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "shares_count",
+          "type": "u64"
+        }
+      ],
+      "discriminator": [
+        107,
+        244,
+        140,
+        35,
+        203,
+        31,
+        86,
+        85
+      ]
+    },
+    {
+      "name": "graduate_to_raydium",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "launch_pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "sol_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "claim_token_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "lp_token_staging",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "marketing_wallet",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "buyback_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "treasury_wallet",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        }
+      ],
+      "args": [],
+      "discriminator": [
+        59,
+        239,
+        35,
+        57,
+        13,
+        217,
+        40,
+        195
+      ]
+    },
+    {
+      "name": "create_raydium_pool",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "launch_pool",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "wsol_mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "sol_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "lp_token_staging",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "pool_wsol_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "creator_lp_token",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "amm_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "raydium_authority",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "pool_state",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "lp_mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "token_0_mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "token_1_mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "token_0_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "token_1_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "observation_state",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "create_pool_fee_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "token_classic_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "associated_token_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "rent",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "raydium_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "payer",
+          "isMut": true,
+          "isSigner": true
+        }
+      ],
+      "args": [],
+      "discriminator": [
+        65,
+        45,
+        119,
+        77,
+        204,
+        178,
+        84,
+        2
+      ]
+    },
+    {
+      "name": "claim_tokens",
+      "accounts": [
+        {
+          "name": "launch_pool",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "minter_record",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "claim_token_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user_token_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [],
+      "discriminator": [
+        108,
+        216,
+        210,
+        231,
+        0,
+        212,
+        42,
+        64
+      ]
+    },
+    {
+      "name": "distribute_harvested_tax",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "launch_pool",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "dividend_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "harvester_token_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "reward_mint_account",
+          "isMut": false,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "harvester_reward_ata",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "dividend_reward_ata",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "reward_token_program",
+          "isMut": false,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "dividend_vault_2",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "reward_mint_account_2",
+          "isMut": false,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "harvester_reward_ata_2",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "dividend_reward_ata_2",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "reward_token_program_2",
+          "isMut": false,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "marketing_wallet",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "buyback_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "treasury_wallet",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "harvester",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "burn_token_amount",
+          "type": "u64"
+        },
+        {
+          "name": "dividend_reward_amount",
+          "type": "u64"
+        },
+        {
+          "name": "creator_and_platform_sol_amount",
+          "type": "u64"
+        }
+      ],
+      "discriminator": [
+        9,
+        185,
+        215,
+        160,
+        187,
+        4,
+        51,
+        70
+      ]
+    },
+    {
+      "name": "harvest_withheld_fees",
+      "discriminator": [
+        81,
+        129,
+        171,
+        46,
+        172,
+        44,
+        96,
+        81
+      ],
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "launch_pool",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "harvester_token_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "harvester",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_dividend",
+      "accounts": [
+        {
+          "name": "launch_pool",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "dividend_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "minter_record",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user_token_account",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "reward_mint_account",
+          "isMut": false,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "dividend_reward_ata",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "user_reward_ata",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "reward_token_program",
+          "isMut": false,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "dividend_vault_2",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "minter_reward_2",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "reward_mint_account_2",
+          "isMut": false,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "dividend_reward_ata_2",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "user_reward_ata_2",
+          "isMut": true,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "reward_token_program_2",
+          "isMut": false,
+          "isSigner": false,
+          "isOptional": true
+        },
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [],
+      "discriminator": [
+        15,
+        29,
+        207,
+        120,
+        153,
+        178,
+        164,
+        91
+      ]
+    },
+    {
+      "name": "manual_buyback_and_burn",
+      "accounts": [
+        {
+          "name": "global_config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "buyback_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "platform_token_mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "buyback_token_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_sol",
+          "type": "u64"
+        },
+        {
+          "name": "burn_token_amount",
+          "type": "u64"
+        }
+      ],
+      "discriminator": [
+        54,
+        57,
+        229,
+        170,
+        152,
+        9,
+        254,
+        127
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "GlobalConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "gate_signer",
+            "type": "pubkey"
+          },
+          {
+            "name": "platform_token_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "platform_pool_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_launches",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "buyback_vault_bump",
+            "type": "u8"
+          },
+          {
+            "name": "total_buyback_sol_spent",
+            "type": "u64"
+          },
+          {
+            "name": "total_platform_burned",
+            "type": "u64"
+          },
+          {
+            "name": "public_launches_enabled",
+            "type": "bool"
+          }
+        ]
+      },
+      "discriminator": [
+        149,
+        8,
+        156,
+        202,
+        160,
+        252,
+        176,
+        217
+      ]
+    },
+    {
+      "name": "WhitelistedAsset",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "symbol",
+            "type": {
+              "array": [
+                "u8",
+                12
+              ]
+            }
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          },
+          {
+            "name": "added_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      },
+      "discriminator": [
+        111,
+        159,
+        13,
+        47,
+        211,
+        180,
+        6,
+        20
+      ]
+    },
+    {
+      "name": "LaunchPool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "marketing_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_shares",
+            "type": "u64"
+          },
+          {
+            "name": "sold_shares",
+            "type": "u64"
+          },
+          {
+            "name": "price_per_share",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_per_share",
+            "type": "u64"
+          },
+          {
+            "name": "total_sol_raised",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "LaunchStatus",
+                "generics": []
+              }
+            }
+          },
+          {
+            "name": "is_official",
+            "type": "bool"
+          },
+          {
+            "name": "raydium_pool_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "graduated_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "sol_vault_bump",
+            "type": "u8"
+          }
+        ]
+      },
+      "discriminator": [
+        29,
+        65,
+        189,
+        216,
+        67,
+        129,
+        179,
+        61
+      ]
+    },
+    {
+      "name": "MinterRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares_bought",
+            "type": "u64"
+          },
+          {
+            "name": "bonus_shares",
+            "type": "u64"
+          },
+          {
+            "name": "has_recorded_invite",
+            "type": "bool"
+          },
+          {
+            "name": "has_claimed",
+            "type": "bool"
+          },
+          {
+            "name": "reward_debt",
+            "type": "u128"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      },
+      "discriminator": [
+        98,
+        29,
+        232,
+        111,
+        68,
+        231,
+        62,
+        11
+      ]
+    },
+    {
+      "name": "DividendVault",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_reward_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "acc_reward_per_token",
+            "type": "u128"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      },
+      "discriminator": [
+        50,
+        106,
+        134,
+        112,
+        43,
+        207,
+        200,
+        150
+      ]
+    },
+    {
+      "name": "MinterReward2",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_debt",
+            "type": "u128"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      },
+      "discriminator": [
+        244,
+        77,
+        38,
+        86,
+        192,
+        188,
+        60,
+        163
+      ]
+    }
+  ],
+  "types": [
+    {
+      "name": "LaunchStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Minting"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Graduated"
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "name": "DividendAssetWhitelistedEvent",
+      "fields": [
+        {
+          "name": "asset_mint",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "symbol",
+          "type": "string",
+          "index": false
+        },
+        {
+          "name": "decimals",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "enabled",
+          "type": "bool",
+          "index": false
+        }
+      ],
+      "discriminator": [
+        41,
+        140,
+        19,
+        240,
+        9,
+        139,
+        175,
+        201
+      ]
+    },
+    {
+      "name": "LaunchCreatedEvent",
+      "fields": [
+        {
+          "name": "mint",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "creator",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "reward_mint",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "reward_mint_2",
+          "type": {
+            "option": "pubkey"
+          },
+          "index": false
+        },
+        {
+          "name": "total_shares",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "price_per_share",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "is_official",
+          "type": "bool",
+          "index": false
+        }
+      ],
+      "discriminator": [
+        194,
+        140,
+        240,
+        209,
+        255,
+        193,
+        162,
+        70
+      ]
+    },
+    {
+      "name": "SharesMintedEvent",
+      "fields": [
+        {
+          "name": "mint",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "user",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "shares_count",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "sol_cost",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "sold_shares",
+          "type": "u64",
+          "index": false
+        }
+      ],
+      "discriminator": [
+        143,
+        182,
+        249,
+        157,
+        227,
+        97,
+        42,
+        56
+      ]
+    },
+    {
+      "name": "SharesRefundedEvent",
+      "fields": [
+        {
+          "name": "mint",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "user",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "shares_count",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "refund_lamports",
+          "type": "u64",
+          "index": false
+        }
+      ],
+      "discriminator": [
+        71,
+        236,
+        155,
+        86,
+        23,
+        26,
+        243,
+        118
+      ]
+    },
+    {
+      "name": "PoolGraduatedEvent",
+      "fields": [
+        {
+          "name": "mint",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "lp_sol",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "lp_tokens",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "creator_sol",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "buyback_sol",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "treasury_sol",
+          "type": "u64",
+          "index": false
+        }
+      ],
+      "discriminator": [
+        145,
+        143,
+        218,
+        234,
+        129,
+        215,
+        224,
+        4
+      ]
+    },
+    {
+      "name": "RaydiumPoolCreatedEvent",
+      "fields": [
+        {
+          "name": "mint",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "pool_id",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "lp_sol",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "lp_tokens",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "token_0_mint",
+          "type": "pubkey",
+          "index": false
+        },
+        {
+          "name": "token_1_mint",
+          "type": "pubkey",
+          "index": false
+        }
+      ],
+      "discriminator": [
+        170,
+        178,
+        21,
+        215,
+        84,
+        222,
+        34,
+        101
+      ]
+    },
+    {
+      "name": "PlatformBuybackBurnEvent",
+      "fields": [
+        {
+          "name": "sol_spent",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "tokens_burned",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "timestamp",
+          "type": "i64",
+          "index": false
+        }
+      ],
+      "discriminator": [
+        192,
+        123,
+        235,
+        89,
+        63,
+        244,
+        32,
+        51
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "Unauthorized caller for this instruction."
+    },
+    {
+      "code": 6001,
+      "name": "InvalidAgentGateSignature",
+      "msg": "Invalid AgentGateSigner co-signature. Only verified Solana Agent Wallets may participate."
+    },
+    {
+      "code": 6002,
+      "name": "InvalidTotalShares",
+      "msg": "Total shares must be at least 1,000 and a multiple of 1,000."
+    },
+    {
+      "code": 6003,
+      "name": "InvalidSharePrice",
+      "msg": "Price per share must be greater than zero."
+    },
+    {
+      "code": 6004,
+      "name": "InvalidSharesCount",
+      "msg": "Shares count must be greater than zero."
+    },
+    {
+      "code": 6005,
+      "name": "PoolNotMinting",
+      "msg": "Launch pool is not currently in Minting status."
+    },
+    {
+      "code": 6006,
+      "name": "PoolNotCompleted",
+      "msg": "Launch pool has not reached 100% graduation yet."
+    },
+    {
+      "code": 6007,
+      "name": "PoolNotGraduated",
+      "msg": "Launch pool has not graduated to Raydium CPMM yet."
+    },
+    {
+      "code": 6008,
+      "name": "ExceedsRemainingShares",
+      "msg": "Requested shares exceed remaining available shares."
+    },
+    {
+      "code": 6009,
+      "name": "ExceedsPersonalCap",
+      "msg": "Requested shares exceed your current personal cap (1% base + 1 share per invited Agent)."
+    },
+    {
+      "code": 6010,
+      "name": "SelfInviteNotAllowed",
+      "msg": "Cannot invite yourself."
+    },
+    {
+      "code": 6011,
+      "name": "InsufficientSharesForRefund",
+      "msg": "Insufficient shares held for refund."
+    },
+    {
+      "code": 6012,
+      "name": "AlreadyClaimed",
+      "msg": "Tokens have already been claimed for this wallet."
+    },
+    {
+      "code": 6013,
+      "name": "NothingToClaim",
+      "msg": "No tokens available to claim."
+    },
+    {
+      "code": 6014,
+      "name": "BelowDividendThreshold",
+      "msg": "Token balance is below the 200,000 (0.02%) minimum threshold for dividends."
+    },
+    {
+      "code": 6015,
+      "name": "NoDividendsToClaim",
+      "msg": "No pending dividends to claim."
+    },
+    {
+      "code": 6016,
+      "name": "MathOverflow",
+      "msg": "Arithmetic overflow occurred."
+    },
+    {
+      "code": 6017,
+      "name": "PlatformTokenNotConfigured",
+      "msg": "Platform token mint is not configured yet."
+    },
+    {
+      "code": 6018,
+      "name": "DividendAssetNotWhitelisted",
+      "msg": "Selected dividend reward asset is not whitelisted or is currently disabled."
+    },
+    {
+      "code": 6019,
+      "name": "InvalidRewardMintAccount",
+      "msg": "Provided reward token account does not match the pool's configured reward_mint."
+    },
+    {
+      "code": 6020,
+      "name": "TransferFeeNotConfigured",
+      "msg": "Mint does not carry a 1% Token-2022 TransferFee extension."
+    },
+    {
+      "code": 6021,
+      "name": "InvalidMintAuthority",
+      "msg": "Mint authority must be the launch pool PDA."
+    },
+    {
+      "code": 6022,
+      "name": "MintSupplyNotZero",
+      "msg": "Mint must be fresh (zero supply) at launch creation."
+    },
+    {
+      "code": 6023,
+      "name": "PoolAlreadyHasRaydiumPool",
+      "msg": "Launch pool already has a Raydium pool."
+    },
+    {
+      "code": 6024,
+      "name": "InvalidRaydiumAccount",
+      "msg": "A Raydium account does not match its expected PDA."
+    },
+    {
+      "code": 6025,
+      "name": "RaydiumPoolDisabled",
+      "msg": "The Raydium amm config forbids pool creation."
+    },
+    {
+      "code": 6026,
+      "name": "InsufficientLpSol",
+      "msg": "Not enough SOL left in the vault for the Raydium pool plus its creation fee."
+    },
+    {
+      "code": 6027,
+      "name": "InvalidTokenOrder",
+      "msg": "token_0_mint must be the smaller pubkey of the pair."
+    },
+    {
+      "code": 6028,
+      "name": "InvalidMintDecimals",
+      "msg": "Mint decimals must be 6."
+    },
+    {
+      "code": 6029,
+      "name": "InsufficientBuybackBalance",
+      "msg": "Buyback vault holds fewer platform tokens than requested to burn."
+    },
+    {
+      "code": 6030,
+      "name": "LaunchesDisabled",
+      "msg": "Public launch creation is currently disabled by the admin."
+    },
+    {
+      "code": 6031,
+      "name": "InvalidMetadata",
+      "msg": "Token metadata name (max 32), symbol (max 10) or URI (max 200) is too long."
+    },
+    {
+      "code": 6032,
+      "name": "InvalidMetadataAccount",
+      "msg": "The metadata account is not the Metaplex PDA for this launch mint, or the pool mint does not match."
+    },
+    {
+      "code": 6033,
+      "name": "InvalidSecondRewardMint",
+      "msg": "Second dividend asset is invalid (duplicates the first asset, or SOL paired with SOL)."
+    },
+    {
+      "name": "InvalidLpStagingAccount",
+      "code": 6034,
+      "msg": "LP staging account is not the expected PDA for this launch pool, or is not a valid Token-2022 account for the launch mint owned by the pool."
+    },
+    {
+      "name": "InvalidCreatorLpToken",
+      "code": 6035,
+      "msg": "Creator LP token account is not the expected associated token account for the LP mint owned by the pool."
+    },
+    {
+      "name": "RaiseTooSmallForPoolCreation",
+      "code": 6036,
+      "msg": "Total raise is too small: the 60% LP share would not cover the Raydium pool creation fee plus rent buffer."
+    },
+    {
+      "code": 6037,
+      "name": "InvalidMinterRecord",
+      "msg": "Minter record PDA does not match the expected address or its data is invalid."
+    },
+    {
+      "code": 6038,
+      "name": "InsufficientDividendBalance",
+      "msg": "Dividend vault does not hold enough SOL to pay the pending dividend."
+    },
+    {
+      "code": 6039,
+      "name": "TransferHookNotConfigured",
+      "msg": "Mint does not carry the AgentPad real-time burn transfer hook."
+    }
+  ],
+  "metadata": {
+    "address": "DMt9jcZTMgHzzZcEngNj8c1Q6ahVdyLACirZwT71NzA6"
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "programName": "agentpad",
+  "programId": "DMt9jcZTMgHzzZcEngNj8c1Q6ahVdyLACirZwT71NzA6",
+  "programIdNote": "v4.2.7 fresh redeploy 2026-11-20 (new program id; old J4SUM... closed, 3.68278156 SOL reclaimed). ProgramData 64FRm9rvR2kbBN4PEfuUpW8mkYkJPGdN78jctoGKCJmb. Keypair agentpad_phase3/target/deploy/agentpad-v3-keypair.json.",
+  "gateSignerPubkey": "Ax2f6Eu3yTA6uow9TqASrA9Xm22kL9fgJktZsaEx7hob",
+  "gateSignerNote": "Public key of the gate server's persistent keypair (server/.gate-keypair.json). initialize_global MUST use this as gate_signer. The private key never leaves the server.",
+  "cluster": "devnet",
+  "rpc": {
+    "devnet": "https://api.devnet.solana.com",
+    "mainnet": "https://api.mainnet-beta.solana.com",
+    "localhost": "http://127.0.0.1:8899"
+  },
+  "apiBaseDefault": "http://localhost:8787",
+  "skillUrl": "https://spacexpad.xyz/skill.md",
+  "token": {
+    "decimals": 6,
+    "totalSupply": 1000000000,
+    "publicMintSupply": 625000000,
+    "lpSupply": 375000000,
+    "totalSupplyRaw": 1000000000000000,
+    "publicMintSupplyRaw": 625000000000000,
+    "lpSupplyRaw": 375000000000000
+  },
+  "shares": {
+    "step": 1000,
+    "minTotal": 1000,
+    "maxTotal": 50000,
+    "initialCapBps": 100
+  },
+  "graduationSolSplitBps": {
+    "lp": 6000,
+    "creator": 3500,
+    "buyback": 250,
+    "treasury": 250
+  },
+  "transferFeeBps": 100,
+  "transferFeeNote": "v4.2.13 reverts v4.2.12: TransferFee back to 100bps (1% total tax). The transfer hook cannot burn from the source account (token program passes it readonly), so the 20% burn goes back to the crank (every 5 minutes).",
+  "taxSplitBps": {
+    "dividend": 5000,
+    "burn": 2000,
+    "creator": 2000,
+    "buyback": 500,
+    "treasury": 500
+  },
+  "minDividendHolding": 200000,
+  "dividendPrecision": 1000000000000,
+  "dividendWhitelist": [
+    {
+      "symbol": "SOL",
+      "name": "Solana (Native)",
+      "mint": "NativeSOL1111111111111111111111111111111111",
+      "decimals": 9,
+      "enabled": true
+    },
+    {
+      "symbol": "NVDAx",
+      "name": "NVIDIA xStock",
+      "mint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+      "decimals": 8,
+      "enabled": true
+    },
+    {
+      "symbol": "TSLAx",
+      "name": "Tesla xStock",
+      "mint": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+      "decimals": 8,
+      "enabled": true
+    },
+    {
+      "symbol": "AAPLx",
+      "name": "Apple xStock",
+      "mint": "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
+      "decimals": 8,
+      "enabled": true
+    },
+    {
+      "symbol": "MSTRx",
+      "name": "MicroStrategy xStock",
+      "mint": "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",
+      "decimals": 8,
+      "enabled": true
+    },
+    {
+      "symbol": "ANTx",
+      "name": "Anthropic xStock",
+      "mint": "XsYzw7XHj8K2WHeoeNQVyevMmzjzXfcJ8tQ4FmdN1DL",
+      "decimals": 8,
+      "enabled": true
+    },
+    {
+      "symbol": "SPCXx",
+      "name": "SpaceX xStock",
+      "mint": "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8",
+      "decimals": 8,
+      "enabled": true
+    }
+  ],
+  "wsolMint": "So11111111111111111111111111111111111111112",
+  "raydium": {
+    "mainnet": {
+      "cpmmProgram": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+      "feeAccount": "DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8",
+      "authority": "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL"
+    },
+    "devnet": {
+      "cpmmProgram": "CPMDWBwJDtYax9qW7AyRuVC19Cc4L4Vcy4n2BHAbHkCW",
+      "feeAccount": "G11FKBRaAkHAKuLCgLM6K6NUc9rTjPAznRCjZifrTQe2",
+      "authority": "7rQ1QFNosMkUCuh7Z7fPbTHvh73b68sQYdirycEzJVuw"
+    },
+    "ammConfigIndex": 0,
+    "poolRentBufferLamports": 100000000,
+    "poolRentBufferNote": "Lamports held back alongside the Raydium pool-creation fee (mirrors RAYDIUM_POOL_RENT_BUFFER in programs/agentpad/src/constants.rs). Used by the v4.2.7 minimum-raise check.",
+    "graduatorReserveLamports": 20000000,
+    "graduatorReserveNote": "v4.2.11: fixed reserve (0.02 SOL) sent from the 60% LP share to the graduator at pool creation (mirrors GRADUATOR_RESERVE_LAMPORTS). Covers the metadata rent (~0.0137 SOL) plus tx fees, with ~0.006 SOL surplus per graduation accumulating to cover the 6-hour crank fees. The LP side of the pool is reduced by the same amount; the minimum-raise check counts it alongside the pool fee and rent buffer.",
+    "minHarvestSolLamports": 1000000,
+    "minHarvestSolNote": "v4.2.11: crank minimum-value threshold (0.001 SOL of expected SOL out from the 80% swap, mirrors MIN_HARVEST_SOL_LAMPORTS in scripts/harvest_distribute.mjs). Below this the harvest loses money on gas (~0.000025 SOL per run), so the tax is left to accumulate for the next 6-hour run."
+  },
+  "seeds": {
+    "globalConfig": "global_config",
+    "buybackVault": "buyback_vault",
+    "launchPool": "launch_pool",
+    "solVault": "sol_vault",
+    "dividendVault": "dividend_vault",
+    "dividendVault2": "dividend_vault_2",
+    "minter": "minter",
+    "minterReward2": "minter_reward_2",
+    "whitelistAsset": "whitelist_asset"
+  }
+}

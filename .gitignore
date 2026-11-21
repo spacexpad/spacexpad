@@ -1,0 +1,25 @@
+# SpaceXpad public repo .gitignore — keys and build artifacts must NEVER be committed.
+
+# Keys and credentials (ABSOLUTE BAN)
+*-keypair.json
+deploy-wallet-id.json
+deploy-wallet-base58.txt
+.gate-keypair.json
+id.json
+*.pem
+*.key
+.env
+*.env
+credentials*
+*secret*
+fresh_deploy_state.json
+*_state.json
+*wallet*.json
+.sim-wallets/
+.buffer-keypair-*.json
+
+# Build artifacts
+target/
+Cargo.lock
+node_modules/
+.DS_Store

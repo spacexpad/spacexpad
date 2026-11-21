@@ -1,0 +1,39 @@
+[package]
+name = "agentpad"
+version = "0.1.0"
+description = "Solana Agent-Wallet Fair-Mint Launchpad (Scheme A 1:1 CPMM + Token-2022 5-2-2-1 Tax)"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "agentpad"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.30.1", features = ["init-if-needed"] }
+anchor-spl = { version = "0.30.1", features = ["token_2022"] }
+spl-token-2022 = { version = "3", features = ["no-entrypoint"] }
+# Toolchain pins (LOCKFILE-ONLY — do NOT add these as direct deps: a direct
+# `borsh` dep makes `borsh` ambiguous against anchor_lang::prelude::*):
+# the Solana 1.18 BPF toolchain is Rust 1.75, so the tree must contain no
+# edition2024 crate and no crate with rust-version > 1.75. Pinned in
+# Cargo.lock via `cargo update -p <crate> --precise <ver>`:
+#   blake3 1.5.0 (1.8+ pulls cpufeatures 0.3.1, edition2024)
+#   zeroize_derive 1.4.2 (1.5.0 is edition2024)
+#   indexmap 2.9.0 (2.14 pulls hashbrown 0.17, edition2024)
+#   proc-macro-crate 3.2.0 (3.5 pulls toml_edit 0.25, edition2024)
+#   jobserver 0.1.32 (0.1.35 pulls getrandom 0.4, edition2024)
+#   borsh 1.5.7 (1.6+ needs rustc >= 1.77)
+#   rayon 1.10.0 / rayon-core 1.12.1 (1.12/1.13 need rustc >= 1.80)
+#   unicode-segmentation 1.12.0 (1.13 needs rustc >= 1.85)
+# If the lock is ever regenerated, re-apply these with cargo update --precise
+# and re-check with: cargo metadata | grep edition/rust_version.
+# spl-token-2022 is "3", not "4": anchor-spl 0.30.1 uses 3.x, and 4.x pulls
+# solana-program 2.0 (two solana-programs + blake3 1.8 in one tree).
