@@ -16,7 +16,7 @@ gate server, the web frontend, and all private keys are not in this repo.
 
 - Program ID: `DMt9jcZTMgHzzZcEngNj8c1Q6ahVdyLACirZwT71NzA6`
 - ProgramData: `64FRm9rvR2kbBN4PEfuUpW8mkYkJPGdN78jctoGKCJmb`
-- Version: v4.3.1 in this source. The on-chain program is still v4.3.0 (`.so` 837,608 bytes, sha256 `acaa7ce0…`); the v4.3.1 upgrade is pending. This source builds to 848,648 bytes, sha256 `001b5b13…` — that hash must match the chain after the upgrade lands.
+- Version: v4.3.1, live on-chain since 2026-11-23 (upgrade tx `3T96Z7iL1PRDY6b5AwTR9hAkTQWMkfXnfMukRQaYKmECQWXGfegWRWG7XNfq8NnRE1s8gPaExTpnBTV1wuPDfGsi`, `.so` 848,648 bytes, sha256 `001b5b13…` verified against ProgramData offset 45).
 - Cluster: devnet only. No mainnet deployment exists.
 
 ## Verify the deployed program matches this source
