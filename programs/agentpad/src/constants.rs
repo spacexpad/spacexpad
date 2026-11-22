@@ -32,8 +32,21 @@ pub const GRAD_TREASURY_SOL_BPS: u64 = 250;
 /// the hook, so a Burn CPI is rejected with "writable privilege
 /// escalated"), so the 20% burn goes back to the crank (every 5 minutes).
 /// The full 1% is withheld again; the crank sells 80% and burns 20%.
+/// v4.3.0: new launches NO LONGER carry this fee (create_launch does not
+/// require it, the SDK does not create it). The 1% tax moved to the
+/// `swap_with_tax` wrapper (WRAPPER_TAX_BPS below) so mint / claim / P2P
+/// transfers are tax-free and only pool trades are taxed. This constant
+/// stays for the legacy coins (XXX / D / SXPAD), whose mints already
+/// carry the fee and whose crank pipeline (harvest_withheld_fees) is
+/// unchanged.
 pub const TRANSFER_FEE_BPS: u16 = 100;
 pub const MAX_TRANSFER_FEE_RAW: u64 = 1_000_000_000 * 1_000_000;
+
+/// v4.3.0: wrapper tax rate (100 bps = 1% of the token leg of a pool
+/// trade routed through `swap_with_tax`). Same rate as the legacy mint
+/// fee, but collected by the program into the per-launch tax vault
+/// instead of by the token program on every transfer.
+pub const WRAPPER_TAX_BPS: u64 = 100;
 
 /// 5-2-2-1 Tax Split (out of 10,000 bps of collected tax)
 /// 20% Burned by the crank (2,000 bps), remaining 80% withheld by the
@@ -65,6 +78,30 @@ pub const RAYDIUM_INITIALIZE_DISCRIMINATOR: [u8; 8] = [175, 175, 109, 31, 13, 15
 
 /// Raydium CPMM amm-config index used for every pool (see SDK `getCreatePoolKeys`).
 pub const RAYDIUM_AMM_CONFIG_INDEX: u16 = 0;
+
+/// Raydium CPMM `swap_base_input` discriminator, verbatim from
+/// @raydium-io/raydium-sdk-v2 `makeSwapCpmmBaseInInInstruction`
+/// (same value the SDK's `createSwapBaseInputIx` uses). Used by the
+/// v4.3.0 `swap_with_tax` wrapper, which CPIs into Raydium's swap.
+pub const RAYDIUM_SWAP_BASE_INPUT_DISCRIMINATOR: [u8; 8] =
+    [143, 190, 90, 218, 196, 30, 51, 222];
+
+/// Raydium CPMM program ids (v4.3.1, review item 2): the only AMM
+/// programs the pool-creation and swap paths may CPI into. The devnet
+/// id only exists on devnet and the mainnet id only on mainnet, so
+/// accepting both is safe on either cluster. The caller passes the
+/// program id; without this whitelist a fake program would be used
+/// for every PDA derivation and CPI.
+pub const RAYDIUM_CPMM_PROGRAM_ID_DEVNET: Pubkey =
+    pubkey!("CPMDWBwJDtYax9qW7AyRuVC19Cc4L4Vcy4n2BHAbHkCW");
+pub const RAYDIUM_CPMM_PROGRAM_ID_MAINNET: Pubkey =
+    pubkey!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
+
+/// SPL Associated Token program id (same on every cluster). Used by
+/// the v4.3.1 claim-vault check: the claim vault must be the pool's
+/// ATA for the mint.
+pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey =
+    pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
 /// Rent buffer (lamports) funded into the launch-pool PDA alongside the
 /// Raydium pool-creation fee, so the PDA can pay the rent for the pool

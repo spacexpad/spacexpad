@@ -37,6 +37,12 @@ export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZb
 /** Mint account size with a TransferFeeConfig extension (== spl-token getMintLen). */
 export const MINT_LEN_WITH_TRANSFER_FEE = 278;
 
+/** Mint account size for a plain Token-2022 mint with no extensions (v4.3.0: new launches carry no transfer fee). */
+export const MINT_LEN_PLAIN = 82;
+
+/** v4.3.0 wrapper tax: 1% of the token leg of a pool trade routed through `swap_with_tax`. */
+export const WRAPPER_TAX_BPS = 100;
+
 // --- Tiny base58 encoder (no extra dependency) ---
 // The RPC `getProgramAccounts` memcmp filter expects base58 bytes; the
 // SDK previously passed base64, which devnet rejects with INVALID_PARAMS.
@@ -168,6 +174,8 @@ export const DISCRIMINATORS = {
   claim_tokens: '6cd8d2e700d42a40',
   distribute_harvested_tax: '09b9d7a0bb043346',
   harvest_withheld_fees: '5181ab2eac2c6051',
+  swap_with_tax: '69cfba047d4d7fc7',
+  withdraw_tax: 'dc9654c7031ddf60',
   claim_dividend: '0f1dcf7899b2a45b',
   manual_buyback_and_burn: '3639e5aa9809fe7f',
 };
@@ -296,6 +304,11 @@ export function dividendVaultPda(pool) {
 export function dividendVault2Pda(pool) {
   return PublicKey.findProgramAddressSync([Buffer.from(S.dividendVault2), new PublicKey(pool).toBuffer()], PROGRAM_ID)[0];
 }
+// v4.3.0: tax vault — PDA token account for the launch mint, owned by the
+// launch pool. The wrapper routes 1% of every pool trade here.
+export function taxVaultPda(mint) {
+  return PublicKey.findProgramAddressSync([Buffer.from(S.taxVault), new PublicKey(mint).toBuffer()], PROGRAM_ID)[0];
+}
 export function minterPda(mint, user) {
   return PublicKey.findProgramAddressSync(
     [Buffer.from(S.minter), new PublicKey(mint).toBuffer(), new PublicKey(user).toBuffer()], PROGRAM_ID)[0];
@@ -389,9 +402,9 @@ export function checkMinRaise(totalShares, pricePerShareLamports, feeLamports) {
 export const RAYDIUM_SWAP_BASE_INPUT_DISCRIMINATOR = [143, 190, 90, 218, 196, 30, 51, 222];
 /** CPMM fee denominator (raydium-sdk-v2 FEE_RATE_DENOMINATOR_VALUE). */
 export const CPMM_FEE_DENOMINATOR = 1000000n;
-/** Platform launch tokens carry an 80bps TransferFee (v4.2.12: the other
- * 20bps of the 1% tax is burned in real time by the transfer hook, so the
- * swap quote must only subtract the 80bps withheld fee on the token leg). */
+/** Legacy launch mints carry a 100bps TransferFee (v4.2.x). New launches
+ * (v4.3.0+) are plain mints with no fee; their 1% is the wrapper tax
+ * (WRAPPER_TAX_BPS), collected by `swap_with_tax` into the tax vault. */
 export const PLATFORM_TRANSFER_FEE_BPS = 100;
 /** Default slippage for station trades (matches the old Jupiter flow). */
 export const TRADE_SLIPPAGE_BPS = 100;
@@ -523,6 +536,94 @@ export function createSwapBaseInputIx({ poolState, authority, raydiumProgram, in
 }
 
 /**
+ * v4.3.0: which tax model a launch uses.
+ *   'legacy'  — the mint carries a TransferFeeConfig (100bps, v4.2.x
+ *               launches); trades go straight to the Raydium pool and the
+ *               crank harvests the withheld fee.
+ *   'wrapper' — plain mint, no extensions (v4.3.0+ launches); trades must
+ *               go through `swap_with_tax`, which routes 1% of the token
+ *               leg into the launch's tax vault for the crank to collect.
+ * Detection is by mint account length: this platform only ever creates
+ * plain mints (82 bytes) or fee mints (278 bytes). spl-token cannot be
+ * imported in the browser bundle (it pulls node:crypto), so the extension
+ * TLV is not parsed here.
+ */
+export async function getTaxModel(connection, mint) {
+  const info = await connection.getAccountInfo(new PublicKey(mint), 'confirmed');
+  if (!info) throw new Error(`mint not found: ${mint}`);
+  return info.data.length === MINT_LEN_PLAIN ? 'wrapper' : 'legacy';
+}
+
+/**
+ * Build the full instruction list for a station trade on a v4.3.0+
+ * (wrapper) launch, routed through the program's `swap_with_tax` so 1%
+ * of the token leg lands in the launch's tax vault. `amountIn` is in
+ * human units (SOL for a buy, tokens for a sell). Returns the same shape
+ * as raydiumSwapIxs.
+ *
+ * Buy (SOL -> token): pool outputs amountOut, the user keeps 99%
+ * (1% stays in the tax vault); amountOutMin is the NET minimum and the
+ * program grosses it back up internally.
+ * Sell (token -> SOL): 1% of amountIn goes to the tax vault, 99%
+ * enters the pool; amountOutMin is the SOL minimum, no tax on the SOL leg.
+ */
+export async function wrapperSwapIxs({ connection, poolId, mint, side, amountIn, slippageBps = TRADE_SLIPPAGE_BPS, payer, cluster = CONSTANTS.cluster }) {
+  if (side !== 'buy' && side !== 'sell') throw new Error(`side must be 'buy' or 'sell', got ${side}`);
+  const payerPk = new PublicKey(payer);
+  const mintPk = new PublicKey(mint);
+  const poolState = await getRaydiumPoolState(connection, poolId);
+  const r = raydiumPdas(mint, cluster);
+  if (!r.poolState.equals(poolState.poolId)) throw new Error('pool id does not match the mint (wrong pool?)');
+  const fees = await getAmmConfigFees(connection, cluster);
+  const isBuy = side === 'buy';
+  const inputMint = isBuy ? WSOL_MINT : mintPk;
+  const outputMint = isBuy ? mintPk : WSOL_MINT;
+  const inputDec = inputMint.equals(poolState.mintA) ? poolState.decA : poolState.decB;
+  const inputVault = inputMint.equals(poolState.mintA) ? poolState.vaultA : poolState.vaultB;
+  const outputVault = outputMint.equals(poolState.mintA) ? poolState.vaultA : poolState.vaultB;
+  const amountInRaw = BigInt(Math.round(Number(amountIn) * 10 ** inputDec));
+  if (amountInRaw <= 0n) throw new Error('amount must be positive');
+  const [inBal, outBal] = await Promise.all([
+    connection.getTokenAccountBalance(inputVault),
+    connection.getTokenAccountBalance(outputVault),
+  ]);
+  const inputReserveRaw = BigInt(inBal.value.amount);
+  const outputReserveRaw = BigInt(outBal.value.amount);
+  // Quote: the mint carries no transfer fee, so the pool math uses
+  // transferFeeBps=0; the 1% wrapper tax is applied on the net amount.
+  let quoteInputRaw = amountInRaw;
+  if (!isBuy) quoteInputRaw = amountInRaw * (10000n - BigInt(WRAPPER_TAX_BPS)) / 10000n;
+  const quote = raydiumSwapQuote({ inputReserveRaw, outputReserveRaw, amountInRaw: quoteInputRaw, tradeFeeRate: fees.tradeFeeRate, transferFeeBps: 0 });
+  const netOutRaw = isBuy
+    ? quote.netOutRaw * (10000n - BigInt(WRAPPER_TAX_BPS)) / 10000n
+    : quote.netOutRaw;
+  const amountOutMinRaw = netOutRaw * (10000n - BigInt(slippageBps)) / 10000n;
+  // Token accounts (same as raydiumSwapIxs).
+  const wsolAta = getAssociatedTokenAddressSync(WSOL_MINT, payerPk, false, TOKEN_PROGRAM_ID);
+  const tokenAta = getAssociatedTokenAddressSync(mintPk, payerPk, false, TOKEN_2022_PROGRAM_ID);
+  const inputAta = isBuy ? wsolAta : tokenAta;
+  const outputAta = isBuy ? tokenAta : wsolAta;
+  const ixs = [];
+  const [wsolInfo, tokenInfo] = await Promise.all([
+    connection.getAccountInfo(wsolAta),
+    connection.getAccountInfo(tokenAta),
+  ]);
+  if (!wsolInfo) ixs.push(createAssociatedTokenAccountInstruction(payerPk, wsolAta, payerPk, WSOL_MINT, TOKEN_PROGRAM_ID));
+  if (isBuy && !tokenInfo) ixs.push(createAssociatedTokenAccountInstruction(payerPk, tokenAta, payerPk, mintPk, TOKEN_2022_PROGRAM_ID));
+  if (!isBuy && !tokenInfo) throw new Error('no token account — nothing to sell');
+  if (isBuy) {
+    ixs.push(SystemProgram.transfer({ fromPubkey: payerPk, toPubkey: wsolAta, lamports: Number(amountInRaw) }));
+    ixs.push(createSyncNativeInstruction(wsolAta));
+  }
+  ixs.push(swapWithTaxIx({
+    mint, user: payerPk, userTokenAccount: tokenAta, userWsolAccount: wsolAta,
+    poolState, isBuy, amountIn: amountInRaw, amountOutMin: amountOutMinRaw, cluster,
+  }));
+  ixs.push(createCloseAccountInstruction(wsolAta, payerPk, payerPk));
+  return { ixs, quote, amountOutMinRaw, inputAta, outputAta, poolState, inputMint, outputMint, amountInRaw };
+}
+
+/**
  * Build the full instruction list for a station trade directly against the
  * Raydium CPMM pool (no Jupiter). `amountIn` is in human units (SOL for a
  * buy, tokens for a sell); the function converts with the pool's decimals.
@@ -541,7 +642,7 @@ export function createSwapBaseInputIx({ poolState, authority, raydiumProgram, in
  * program may credit the full input, in which case the user gets slightly
  * more than quoted and amountOutMin still holds).
  */
-export async function raydiumSwapIxs({ connection, poolId, mint, side, amountIn, slippageBps = TRADE_SLIPPAGE_BPS, payer, cluster = CONSTANTS.cluster }) {
+export async function raydiumSwapIxs({ connection, poolId, mint, side, amountIn, slippageBps = TRADE_SLIPPAGE_BPS, payer, cluster = CONSTANTS.cluster, transferFeeBps = PLATFORM_TRANSFER_FEE_BPS }) {
   if (side !== 'buy' && side !== 'sell') throw new Error(`side must be 'buy' or 'sell', got ${side}`);
   const payerPk = new PublicKey(payer);
   const mintPk = new PublicKey(mint);
@@ -565,14 +666,14 @@ export async function raydiumSwapIxs({ connection, poolId, mint, side, amountIn,
   const outputReserveRaw = BigInt(outBal.value.amount);
   // Quote: the transfer fee is on the token leg.
   let quoteInputRaw = amountInRaw;
-  let transferFeeBps = 0;
+  let quoteFeeBps = 0;
   if (isBuy) {
-    transferFeeBps = PLATFORM_TRANSFER_FEE_BPS; // fee on the output (token) leg
+    quoteFeeBps = transferFeeBps; // fee on the output (token) leg
   } else {
     // Fee on the input (token) leg: the vault only receives 99% of amountIn.
-    quoteInputRaw = amountInRaw * (10000n - BigInt(PLATFORM_TRANSFER_FEE_BPS)) / 10000n;
+    quoteInputRaw = amountInRaw * (10000n - BigInt(transferFeeBps)) / 10000n;
   }
-  const quote = raydiumSwapQuote({ inputReserveRaw, outputReserveRaw, amountInRaw: quoteInputRaw, tradeFeeRate: fees.tradeFeeRate, transferFeeBps });
+  const quote = raydiumSwapQuote({ inputReserveRaw, outputReserveRaw, amountInRaw: quoteInputRaw, tradeFeeRate: fees.tradeFeeRate, transferFeeBps: quoteFeeBps });
   const amountOutMinRaw = quote.netOutRaw * (10000n - BigInt(slippageBps)) / 10000n;
   // Token accounts.
   const wsolAta = getAssociatedTokenAddressSync(WSOL_MINT, payerPk, false, TOKEN_PROGRAM_ID);
@@ -711,8 +812,12 @@ export function createLaunchIx({ creator, mint, totalShares, pricePerShareLampor
     meta(dividendVaultPda(pool), false, true),
     meta(whitelist2, false, false),
     meta(divVault2, false, true),
+    // v4.3.0: tax vault PDA (created by the program in create_launch).
+    meta(taxVaultPda(mint), false, true),
     meta(creator, true, true),
     meta(SystemProgram.programId, false, false),
+    // v4.3.0: Token-2022 program (InitializeAccount3 for the tax vault).
+    meta(TOKEN_2022_PROGRAM_ID, false, false),
     // v4.2.7: the Raydium amm_config (read-only). The program reads the
     // pool-creation fee from it for the minimum-raise check, so it must
     // sit before the trailing gate_signer.
@@ -1065,18 +1170,72 @@ export function harvestWithheldFeesIx({ harvester, mint }) {
   });
 }
 
+// v4.3.0 wrapper swap: route a pool trade through the program so 1% of
+// the token leg lands in the launch's tax vault. Account order MUST match
+// the Anchor SwapWithTax struct in lib.rs. `poolState` is the object from
+// getRaydiumPoolState (vaults/observation come from it, not from seeds).
+// amountOutMin is the NET minimum (after the 1% wrapper tax); the program
+// grosses it back up internally before calling the pool.
+export function swapWithTaxIx({ mint, user, userTokenAccount, userWsolAccount, poolState, isBuy, amountIn, amountOutMin, cluster = CONSTANTS.cluster }) {
+  const mintPk = new PublicKey(mint);
+  const r = raydiumPdas(mint, cluster);
+  if (!r.poolState.equals(poolState.poolId)) throw new Error('pool id does not match the mint (wrong pool?)');
+  const tokenIsA = mintPk.equals(poolState.mintA);
+  const tokenVault = tokenIsA ? poolState.vaultA : poolState.vaultB;
+  const wsolVault = tokenIsA ? poolState.vaultB : poolState.vaultA;
+  return new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      meta(launchPoolPda(mint), false, false),
+      meta(mint, false, false),
+      meta(taxVaultPda(mint), false, true),
+      meta(user, true, true),
+      meta(userTokenAccount, false, true),
+      meta(userWsolAccount, false, true),
+      meta(WSOL_MINT, false, false),
+      meta(r.raydiumProgram, false, false),
+      meta(r.authority, false, false),
+      meta(poolState.ammConfig, false, false),
+      meta(poolState.poolId, false, true),
+      meta(tokenVault, false, true),
+      meta(wsolVault, false, true),
+      meta(poolState.observation, false, true),
+      meta(TOKEN_2022_PROGRAM_ID, false, false),
+      meta(TOKEN_PROGRAM_ID, false, false),
+    ],
+    data: ixData('swap_with_tax', bool(isBuy), u64(amountIn), u64(amountOutMin)),
+  });
+}
+
+// v4.3.0: sweep the whole tax vault into the harvester's ATA (crank).
+// Zero balance is a no-op success on-chain.
+export function withdrawTaxIx({ mint, harvester, harvesterTokenAccount }) {
+  return new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      meta(launchPoolPda(mint), false, false),
+      meta(mint, false, false),
+      meta(taxVaultPda(mint), false, true),
+      meta(harvesterTokenAccount, false, true),
+      meta(harvester, true, true),
+      meta(TOKEN_2022_PROGRAM_ID, false, false),
+    ],
+    data: ixData('withdraw_tax'),
+  });
+}
+
 // ---------------------------------------------------------------------------
-// Token-2022 mint creation: TransferFee 100bps (1% total tax), no hook.
-// What create_launch needs: supply == 0, mint authority == pool PDA,
-// TransferFee == 100bps. v4.2.13 reverts the v4.2.12 transfer-hook
-// experiment (the hook cannot burn from the source account — the token
-// program passes it readonly — so the 20% burn goes back to the crank).
+// Token-2022 mint creation: plain mint, NO transfer fee (v4.3.0).
+// What create_launch needs: supply == 0, mint authority == pool PDA.
+// The 1% tax moved to the `swap_with_tax` wrapper, so mint / claim / P2P
+// transfers are tax-free and only pool trades are taxed. Legacy coins
+// (XXX / D / SXPAD) keep their fee-carrying mints (created before v4.3.0);
+// their crank pipeline (harvest_withheld_fees) is unchanged.
 // ---------------------------------------------------------------------------
 export async function createLaunchMintInstructions({ connection, payer, mintKeypair }) {
-  const mintLen = MINT_LEN_WITH_TRANSFER_FEE;
+  const mintLen = MINT_LEN_PLAIN;
   const rent = await connection.getMinimumBalanceForRentExemption(mintLen);
   const pool = launchPoolPda(mintKeypair.publicKey);
-  const maxFee = BigInt(CONSTANTS.token.totalSupplyRaw); // 1e15 raw units
   const payerPk = new PublicKey(payer);
   return {
     mint: mintKeypair.publicKey,
@@ -1089,14 +1248,6 @@ export async function createLaunchMintInstructions({ connection, payer, mintKeyp
         lamports: rent,
         programId: TOKEN_2022_PROGRAM_ID,
       }),
-      createInitializeTransferFeeConfigInstruction(
-        mintKeypair.publicKey,
-        pool, // transfer-fee config authority: the pool PDA (nobody can change it)
-        pool, // withdraw-withheld authority: the pool PDA
-        CONSTANTS.transferFeeBps,
-        maxFee,
-        TOKEN_2022_PROGRAM_ID,
-      ),
       createInitializeMint2Instruction(
         mintKeypair.publicKey,
         CONSTANTS.token.decimals,
@@ -1227,6 +1378,34 @@ export async function countMinters(connection, mint) {
     ],
   });
   return accounts.length;
+}
+
+export async function listMinters(connection, mint) {
+  // Same scan as countMinters, but returns the wallets so callers can
+  // union them with on-chain token holders (a minter who has not claimed
+  // yet holds shares, not tokens — without this they are invisible in
+  // the holders count). Only wallets with a live claim on tokens count:
+  // sharesBought + bonusShares > 0 (a fully-refunded record stays on
+  // chain with 0 shares and must not count). MinterRecord layout:
+  // pool @8 (32), user @40 (32), sharesBought @72 (u64),
+  // bonusShares @80 (u64).
+  const pool = launchPoolPda(mint);
+  const disc = base58Encode(Buffer.from(ACCOUNT_DISCRIMINATORS.MinterRecord, 'hex'));
+  const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
+    filters: [
+      { memcmp: { offset: 0, bytes: disc } },
+      { memcmp: { offset: 8, bytes: pool.toBase58() } },
+      { dataSize: 107 },
+    ],
+  });
+  const out = [];
+  for (const a of accounts) {
+    const b = Buffer.from(a.account.data);
+    if (b.length < 107) continue;
+    const shares = Number(readU64(b, 72)) + Number(readU64(b, 80));
+    if (shares > 0) out.push(readPubkey(b, 40));
+  }
+  return out;
 }
 
 export async function listMinterRecords(connection) {

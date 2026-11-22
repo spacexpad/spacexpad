@@ -325,12 +325,22 @@
           "isOptional": true
         },
         {
+          "name": "tax_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
           "name": "creator",
           "isMut": true,
           "isSigner": true
         },
         {
           "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "token_program",
           "isMut": false,
           "isSigner": false
         },
@@ -937,6 +947,161 @@
         },
         {
           "name": "mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "harvester_token_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "harvester",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "swap_with_tax",
+      "discriminator": [
+        105,
+        207,
+        186,
+        4,
+        125,
+        77,
+        127,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "launch_pool",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "tax_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "user_token_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "user_wsol_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "wsol_mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "raydium_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "raydium_authority",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "amm_config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "pool_state",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "token_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "wsol_vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "observation",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "token_program",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "token_classic_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "is_buy",
+          "type": "bool"
+        },
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "amount_out_min",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_tax",
+      "discriminator": [
+        220,
+        150,
+        84,
+        199,
+        3,
+        29,
+        223,
+        96
+      ],
+      "accounts": [
+        {
+          "name": "launch_pool",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "mint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "tax_vault",
           "isMut": true,
           "isSigner": false
         },
@@ -1948,6 +2113,31 @@
       "code": 6039,
       "name": "TransferHookNotConfigured",
       "msg": "Mint does not carry the AgentPad real-time burn transfer hook."
+    },
+    {
+      "code": 6040,
+      "name": "InvalidTaxVault",
+      "msg": "Tax vault account is not the expected PDA for this launch mint, or is not a valid Token-2022 account for the launch mint owned by the launch pool."
+    },
+    {
+      "code": 6041,
+      "name": "InvalidSwapAccount",
+      "msg": "A swap account (user token account / WSOL account) does not match the expected mint or owner."
+    },
+    {
+      "code": 6042,
+      "name": "SwapOutputZero",
+      "msg": "The Raydium swap produced zero output tokens."
+    },
+    {
+      "code": 6043,
+      "name": "InvalidAmount",
+      "msg": "Amount must be greater than zero."
+    },
+    {
+      "code": 6044,
+      "name": "InvalidClaimVault",
+      "msg": "Claim vault is not the pool's associated token account for this mint."
     }
   ],
   "metadata": {

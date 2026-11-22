@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
+use anchor_lang::solana_program::program_pack::Pack;
 use anchor_lang::solana_program::system_instruction;
 use anchor_lang::solana_program::program_option::COption;
 use anchor_lang::solana_program::sysvar::rent::Rent;
@@ -10,8 +11,7 @@ use anchor_spl::token::Token;
 use anchor_spl::token_2022::{self, Burn, MintTo, Token2022, TransferChecked};
 use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface};
 use spl_token_2022::extension::{
-    transfer_fee::TransferFeeConfig, BaseStateWithExtensions, ExtensionType,
-    StateWithExtensions,
+    BaseStateWithExtensions, ExtensionType, StateWithExtensions,
 };
 
 pub mod constants;
@@ -288,6 +288,14 @@ pub mod agentpad {
         // (the Raydium CPMM program): a fake config would need a program
         // that owns an account at that PDA address, and the SDK always
         // passes the real config.
+        // v4.3.1 (review item 2): the PDA check below derives from the
+        // config's OWNER, so a fake config owned by a fake program
+        // would pass it — the owner itself has to be whitelisted first.
+        require!(
+            ctx.accounts.amm_config.owner == &RAYDIUM_CPMM_PROGRAM_ID_DEVNET
+                || ctx.accounts.amm_config.owner == &RAYDIUM_CPMM_PROGRAM_ID_MAINNET,
+            AgentPadError::InvalidRaydiumAccount
+        );
         let create_pool_fee = {
             let amm_config_info = &ctx.accounts.amm_config;
             let (amm_config_key, _) = Pubkey::find_program_address(
@@ -326,10 +334,15 @@ pub mod agentpad {
         );
 
         // The mint must be a fresh Token-2022 mint (6 decimals, zero supply)
-        // whose mint authority is this launch pool, carrying the 1% transfer
-        // fee. Otherwise graduate_to_raydium could never mint and the "1%
-        // tax" would be unenforced. The SDK creates such mints
-        // (see sdk/agentpad-sdk.mjs `createLaunchMint`).
+        // whose mint authority is this launch pool. graduate_to_raydium
+        // mints from it, so the authority must be the pool PDA.
+        // v4.3.0: the 1% TransferFeeConfig requirement is REMOVED. New
+        // mints carry no transfer fee (the SDK creates a plain 82-byte
+        // mint), so mint / claim / P2P transfers are tax-free; the 1%
+        // tax is collected only on pool trades by the `swap_with_tax`
+        // wrapper into the per-launch tax vault (created below). The
+        // legacy coins (XXX / D / SXPAD) keep their fee-carrying mints
+        // and the old harvest pipeline. No hook extension is required.
         let mint_acc = &ctx.accounts.mint;
         require!(
             mint_acc.decimals == TOKEN_DECIMALS,
@@ -340,23 +353,30 @@ pub mod agentpad {
             mint_acc.mint_authority == COption::Some(ctx.accounts.launch_pool.key()),
             AgentPadError::InvalidMintAuthority
         );
+
+        // v4.3.0: create the tax vault (PDA token account for the mint,
+        // owned by the launch pool). The `swap_with_tax` wrapper routes
+        // 1% of every pool trade's token leg here; the crank withdraws
+        // it with `withdraw_tax`. Created here (not lazily in the
+        // wrapper) so the vault always exists once the launch does.
+        // Placed before the `pool` mutable borrow below.
         {
-            let mint_info = mint_acc.to_account_info();
-            let mint_data = mint_info.try_borrow_data()?;
-            let mint_state =
-                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)
-                    .map_err(|_| AgentPadError::TransferFeeNotConfigured)?;
-            let fee_config = mint_state
-                .get_extension::<TransferFeeConfig>()
-                .map_err(|_| AgentPadError::TransferFeeNotConfigured)?;
-            require!(
-                fee_config.newer_transfer_fee.transfer_fee_basis_points == TRANSFER_FEE_BPS.into(),
-                AgentPadError::TransferFeeNotConfigured
+            let mint_key = ctx.accounts.mint.key();
+            let (tax_vault_key, tax_bump) = Pubkey::find_program_address(
+                &[b"tax_vault", mint_key.as_ref()],
+                ctx.program_id,
             );
-            // v4.2.13: the transfer-hook requirement is removed (the hook
-            // cannot burn from the source account — the token program
-            // passes it readonly — so the 20% burn goes back to the
-            // crank). No hook extension is required on the mint.
+            let tax_seeds: &[&[u8]] = &[b"tax_vault", mint_key.as_ref(), &[tax_bump]];
+            create_pda_token_account(
+                &ctx.accounts.tax_vault.to_account_info(),
+                &tax_vault_key,
+                tax_seeds,
+                &ctx.accounts.mint.to_account_info(),
+                &ctx.accounts.launch_pool.to_account_info(),
+                &ctx.accounts.creator.to_account_info(),
+                &ctx.accounts.token_program.to_account_info(),
+                &ctx.accounts.system_program.to_account_info(),
+            )?;
         }
 
         let resolved_reward_mint = match reward_mint {
@@ -981,6 +1001,25 @@ pub mod agentpad {
             AgentPadError::PoolNotGraduated
         );
 
+        // v4.3.1 (review item 1): the claim vault must be THE pool's
+        // ATA for the mint. The struct only constrains mint + authority
+        // = launch_pool, and the tax vault satisfies both — without
+        // this a caller could pass the tax vault as the claim vault
+        // and drain tax tokens as if they were claim tokens.
+        let (expected_vault, _) = Pubkey::find_program_address(
+            &[
+                pool.key().as_ref(),
+                ctx.accounts.token_program.key().as_ref(),
+                pool.mint.as_ref(),
+            ],
+            &ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
+        require_keys_eq!(
+            ctx.accounts.claim_token_vault.key(),
+            expected_vault,
+            AgentPadError::InvalidClaimVault
+        );
+
         let record = &mut ctx.accounts.minter_record;
         require!(!record.has_claimed, AgentPadError::AlreadyClaimed);
         require!(record.shares_bought > 0, AgentPadError::NothingToClaim);
@@ -1079,6 +1118,92 @@ pub mod agentpad {
         Ok(())
     }
 
+    /// v4.3.0: pool trade routed through the platform wrapper. Wraps a
+    /// Raydium CPMM `swap_base_input` (CPI) and takes 1% of the token leg
+    /// into the per-launch tax vault:
+    /// - Buy (SOL -> token): the swap output goes to the tax vault, then
+    ///   99% is forwarded to the user and 1% stays as tax.
+    /// - Sell (token -> SOL): 1% of the input is moved to the tax vault
+    ///   first, then 99% is swapped and the SOL goes to the user.
+    /// `amount_out_min` is the minimum the USER must receive, net of the
+    /// 1% tax (the frontend quotes it that way). On a buy the program
+    /// scales it back up for the Raydium CPI, so the swap's own slippage
+    /// check still applies to the full output.
+    /// No gate co-sign: anyone may call it — the tax is enforced by the
+    /// instruction itself, so a direct call is taxed too. Only the
+    /// platform's own frontend / skill builder routes trades here; a
+    /// direct Raydium swap bypasses it (accepted: P2P transfers stay
+    /// tax-free, so a token-level fee cannot enforce this).
+    pub fn swap_with_tax(
+        ctx: Context<SwapWithTax>,
+        is_buy: bool,
+        amount_in: u64,
+        amount_out_min: u64,
+    ) -> Result<()> {
+        let program_id = *ctx.program_id;
+        let mut accounts = Box::new(ctx.accounts);
+        swap_with_tax_inner(&mut accounts, &program_id, is_buy, amount_in, amount_out_min)
+    }
+
+    /// v4.3.0: withdraw the accumulated wrapper tax from a launch's tax
+    /// vault into the harvester's token account (the crank's collection
+    /// step for new launches). Replaces `harvest_withheld_fees` for
+    /// mints without a TransferFeeConfig. Anyone may trigger it; the
+    /// pool must be Graduated. Withdraws the full balance (a zero
+    /// balance is a no-op).
+    pub fn withdraw_tax(ctx: Context<WithdrawTax>) -> Result<()> {
+        require!(
+            ctx.accounts.launch_pool.status == LaunchStatus::Graduated,
+            AgentPadError::PoolNotGraduated
+        );
+        let mint_key = ctx.accounts.launch_pool.mint;
+        let pool_bump = ctx.accounts.launch_pool.bump;
+        let tax_info = ctx.accounts.tax_vault.to_account_info();
+        let (expected_vault, _) = Pubkey::find_program_address(
+            &[b"tax_vault", mint_key.as_ref()],
+            ctx.program_id,
+        );
+        require_keys_eq!(
+            tax_info.key(),
+            expected_vault,
+            AgentPadError::InvalidTaxVault
+        );
+        let balance = {
+            let data = tax_info.try_borrow_data()?;
+            let state =
+                StateWithExtensions::<spl_token_2022::state::Account>::unpack(&data)
+                    .map_err(|_| AgentPadError::InvalidTaxVault)?;
+            require!(
+                state.base.mint == mint_key,
+                AgentPadError::InvalidTaxVault
+            );
+            require!(
+                state.base.owner == ctx.accounts.launch_pool.key(),
+                AgentPadError::InvalidTaxVault
+            );
+            state.base.amount
+        };
+        if balance == 0 {
+            return Ok(());
+        }
+        let pool_seeds: &[&[u8]] = &[b"launch_pool", mint_key.as_ref(), &[pool_bump]];
+        token_2022::transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                TransferChecked {
+                    from: tax_info,
+                    to: ctx.accounts.harvester_token_account.to_account_info(),
+                    authority: ctx.accounts.launch_pool.to_account_info(),
+                    mint: ctx.accounts.mint.to_account_info(),
+                },
+                &[pool_seeds],
+            ),
+            balance,
+            TOKEN_DECIMALS,
+        )?;
+        Ok(())
+    }
+
     /// Holders with >= 200,000 tokens (0.02% supply) actively claim dividends
     /// in the pool's configured reward asset (SOL or whitelisted stock token).
     /// Holders with >= 200,000 tokens (0.02% supply) actively claim dividends
@@ -1112,30 +1237,61 @@ pub mod agentpad {
             expected_minter,
             AgentPadError::InvalidMinterRecord
         );
-        if record_info.lamports() == 0 {
+        // v4.3.1 (review item 5): mirror the lp_staging already-exists
+        // pattern — a funded-but-uninitialized PDA (someone transferred
+        // 1 lamport to the deterministic address) must still be
+        // initializable: fund to rent-exemption, allocate, assign to
+        // this program. A plain create_account would fail with
+        // AccountAlreadyInUse and the victim could never claim.
+        if record_info.data_len() == 0 {
             let rent = Rent::get()?;
-            let lamports = rent.minimum_balance(MinterRecord::LEN);
             let minter_seeds: &[&[u8]] = &[
                 b"minter",
                 mint_key.as_ref(),
                 user_key.as_ref(),
                 &[minter_bump],
             ];
-            let create_ix = system_instruction::create_account(
-                &user_key,
-                &record_info.key(),
-                lamports,
-                MinterRecord::LEN as u64,
-                ctx.program_id,
-            );
-            invoke_signed(
-                &create_ix,
-                &[
-                    ctx.accounts.user.to_account_info(),
-                    record_info.clone(),
-                ],
-                &[minter_seeds],
-            )?;
+            if record_info.lamports() == 0 {
+                let lamports = rent.minimum_balance(MinterRecord::LEN);
+                let create_ix = system_instruction::create_account(
+                    &user_key,
+                    &record_info.key(),
+                    lamports,
+                    MinterRecord::LEN as u64,
+                    ctx.program_id,
+                );
+                invoke_signed(
+                    &create_ix,
+                    &[
+                        ctx.accounts.user.to_account_info(),
+                        record_info.clone(),
+                    ],
+                    &[minter_seeds],
+                )?;
+            } else {
+                let required_lamports = rent
+                    .minimum_balance(MinterRecord::LEN)
+                    .max(1)
+                    .saturating_sub(record_info.lamports());
+                if required_lamports > 0 {
+                    system_program::transfer(
+                        CpiContext::new(
+                            ctx.accounts.system_program.to_account_info(),
+                            system_program::Transfer {
+                                from: ctx.accounts.user.to_account_info(),
+                                to: record_info.clone(),
+                            },
+                        ),
+                        required_lamports,
+                    )?;
+                }
+                let alloc_ix =
+                    system_instruction::allocate(&record_info.key(), MinterRecord::LEN as u64);
+                invoke_signed(&alloc_ix, &[record_info.clone()], &[minter_seeds])?;
+                let assign_ix =
+                    system_instruction::assign(&record_info.key(), ctx.program_id);
+                invoke_signed(&assign_ix, &[record_info.clone()], &[minter_seeds])?;
+            }
             let init_record = MinterRecord {
                 pool: pool.key(),
                 user: user_key,
@@ -1155,6 +1311,95 @@ pub mod agentpad {
         )
         .map_err(|_| AgentPadError::InvalidMinterRecord)?;
 
+        // Leg 2 record (v4.3.1 fix): ensure the second debt record exists
+        // before any leg-2 math reads it. Same manual-CPI pattern as the
+        // leg-1 record above: UncheckedAccount passes through even when
+        // the account doesn't exist yet; the handler verifies the PDA and
+        // creates it on first dual claim. Without this, a dual-asset
+        // holder's claim fails before the handler runs (AccountNotInitialized)
+        // or at the old require! (InvalidSecondRewardMint).
+        // A real vault always has pool == launch_pool; only process leg 2
+        // when that holds (PROGRAM_ID placeholder resolves to None/garbage).
+        let leg2_real = matches!(&ctx.accounts.dividend_vault_2, Some(v2) if v2.pool == pool.key());
+        if leg2_real {
+            let r2_info = ctx
+                .accounts
+                .minter_reward_2
+                .as_ref()
+                .ok_or(AgentPadError::InvalidSecondRewardMint)?
+                .to_account_info();
+            let (expected_r2, r2_bump) = Pubkey::find_program_address(
+                &[b"minter_reward_2", mint_key.as_ref(), user_key.as_ref()],
+                ctx.program_id,
+            );
+            require_keys_eq!(
+                r2_info.key(),
+                expected_r2,
+                AgentPadError::InvalidSecondRewardMint
+            );
+            // Same funded-but-uninitialized fallback as leg 1 (v4.3.1,
+            // review item 5): a 1-lamport pre-fund must not brick the
+            // second debt record either.
+            if r2_info.data_len() == 0 {
+                let rent = Rent::get()?;
+                let r2_seeds: &[&[u8]] = &[
+                    b"minter_reward_2",
+                    mint_key.as_ref(),
+                    user_key.as_ref(),
+                    &[r2_bump],
+                ];
+                if r2_info.lamports() == 0 {
+                    let lamports = rent.minimum_balance(MinterReward2::LEN);
+                    let create_ix = system_instruction::create_account(
+                        &user_key,
+                        &r2_info.key(),
+                        lamports,
+                        MinterReward2::LEN as u64,
+                        ctx.program_id,
+                    );
+                    invoke_signed(
+                        &create_ix,
+                        &[
+                            ctx.accounts.user.to_account_info(),
+                            r2_info.clone(),
+                        ],
+                        &[r2_seeds],
+                    )?;
+                } else {
+                    let required_lamports = rent
+                        .minimum_balance(MinterReward2::LEN)
+                        .max(1)
+                        .saturating_sub(r2_info.lamports());
+                    if required_lamports > 0 {
+                        system_program::transfer(
+                            CpiContext::new(
+                                ctx.accounts.system_program.to_account_info(),
+                                system_program::Transfer {
+                                    from: ctx.accounts.user.to_account_info(),
+                                    to: r2_info.clone(),
+                                },
+                            ),
+                            required_lamports,
+                        )?;
+                    }
+                    let alloc_ix =
+                        system_instruction::allocate(&r2_info.key(), MinterReward2::LEN as u64);
+                    invoke_signed(&alloc_ix, &[r2_info.clone()], &[r2_seeds])?;
+                    let assign_ix =
+                        system_instruction::assign(&r2_info.key(), ctx.program_id);
+                    invoke_signed(&assign_ix, &[r2_info.clone()], &[r2_seeds])?;
+                }
+                let init_r2 = MinterReward2 {
+                    pool: pool.key(),
+                    user: user_key,
+                    reward_debt: 0,
+                    bump: r2_bump,
+                };
+                let mut data = r2_info.try_borrow_mut_data()?;
+                init_r2.try_serialize(&mut &mut data[..])?;
+            }
+        }
+
         // Leg 1 (unchanged math): pending from vault 1's accumulator.
         let accumulated = (user_balance as u128)
             .checked_mul(div_vault.acc_reward_per_token)
@@ -1162,6 +1407,15 @@ pub mod agentpad {
             .checked_div(DIVIDEND_PRECISION)
             .ok_or(AgentPadError::MathOverflow)?;
 
+        // v4.3.1 (review item 4): a wallet that never minted
+        // (shares_bought == 0 — swap buyer, transferee, or an inviter
+        // who never minted) is booked at the CURRENT accumulator and
+        // pays zero history. Without this their first claim would pay
+        // the full accumulated history they never earned, draining the
+        // vault at real minters' expense.
+        if record.shares_bought == 0 {
+            record.reward_debt = accumulated;
+        }
         let pending = accumulated.saturating_sub(record.reward_debt) as u64;
 
         // Leg 2 (v4, dual-asset launches only): same math against vault 2's
@@ -1178,32 +1432,40 @@ pub mod agentpad {
                     .ok_or(AgentPadError::MathOverflow)?
                     .checked_div(DIVIDEND_PRECISION)
                     .ok_or(AgentPadError::MathOverflow)?;
-                let debt2 = ctx
-                    .accounts
-                    .minter_reward_2
-                    .as_ref()
-                    .map(|r| r.reward_debt)
-                    .unwrap_or(0);
+                // The ensure block above created the record if needed, so
+                // it exists here; read its debt by hand (UncheckedAccount).
+                // Same rule as leg 1 (v4.3.1, review item 4): a wallet
+                // that never minted is booked at the current accumulator.
+                let debt2 = if record.shares_bought == 0 {
+                    acc2
+                } else {
+                    match ctx.accounts.minter_reward_2.as_ref() {
+                        Some(r2) => {
+                            let r2_data = MinterReward2::try_deserialize(
+                                &mut &r2.to_account_info().data.borrow()[..],
+                            )
+                            .map_err(|_| AgentPadError::InvalidSecondRewardMint)?;
+                            r2_data.reward_debt
+                        }
+                        None => 0,
+                    }
+                };
                 (acc2.saturating_sub(debt2) as u64, acc2)
             }
             // None, or a placeholder/garbage vault whose pool doesn't match.
             _ => (0, 0),
         };
 
-        // A dual-asset pool MUST carry the second debt record, otherwise
-        // leg 2 could be claimed repeatedly (debt never recorded).
-        // (Use the pool-match test, not is_some(): a PROGRAM_ID placeholder
-        // resolves to Some(garbage) in Anchor 0.30.)
-        let leg2_real = matches!(&ctx.accounts.dividend_vault_2, Some(v2) if v2.pool == pool.key());
-        if leg2_real {
-            require!(
-                ctx.accounts.minter_reward_2.is_some(),
-                AgentPadError::InvalidSecondRewardMint
-            );
-        }
+        // leg2_real and the second debt record were ensured above
+        // (created on first dual claim when missing); the write-back
+        // below updates the record's debt.
 
+        // A first-time non-minter books zero history (see above); the
+        // zero-payment claim must SUCCEED so the booking persists — a
+        // failed transaction would roll the debt write back and the
+        // next claim would pay them the full history anyway.
         require!(
-            pending > 0 || pending_2 > 0,
+            pending > 0 || pending_2 > 0 || record.shares_bought == 0,
             AgentPadError::NoDividendsToClaim
         );
 
@@ -1216,14 +1478,22 @@ pub mod agentpad {
         }
         // Only touch the second debt record when leg 2 really ran (real
         // vault, pool matches). Otherwise minter_reward_2 is a PROGRAM_ID
-        // placeholder and writing to it would fail.
+        // placeholder and writing to it would fail. Manual serialize:
+        // the record is UncheckedAccount now (see the ensure block above).
         if leg2_real {
-            if let Some(r2) = ctx.accounts.minter_reward_2.as_mut() {
-                if r2.pool == Pubkey::default() {
-                    r2.pool = pool.key();
-                    r2.user = ctx.accounts.user.key();
+            if let Some(r2) = ctx.accounts.minter_reward_2.as_ref() {
+                let r2_info = r2.to_account_info();
+                let mut r2_data = MinterReward2::try_deserialize(
+                    &mut &r2_info.data.borrow()[..],
+                )
+                .map_err(|_| AgentPadError::InvalidSecondRewardMint)?;
+                if r2_data.pool == Pubkey::default() {
+                    r2_data.pool = pool.key();
+                    r2_data.user = ctx.accounts.user.key();
                 }
-                r2.reward_debt = accumulated_2;
+                r2_data.reward_debt = accumulated_2;
+                let mut data = r2_info.try_borrow_mut_data()?;
+                r2_data.try_serialize(&mut &mut data[..])?;
             }
         }
 
@@ -1378,6 +1648,483 @@ pub mod agentpad {
 
 }
 
+/// v4.3.0: create a PDA-owned Token-2022 token account by hand (the same
+/// pattern `graduate_to_raydium` uses for `lp_token_staging`: Anchor
+/// 0.30's token `init` is broken on Token-2022 accounts — it captures
+/// `owner_program` before the create / InitializeAccount3 CPIs and then
+/// fails the fresh account in its post-init check). `account` must be the
+/// PDA derived from `seeds` (bump included); `owner` becomes the
+/// token-account authority. Skips creation when the account already
+/// exists, and always verifies mint + owner with a fresh read.
+fn create_pda_token_account<'info>(
+    account: &AccountInfo<'info>,
+    expected_key: &Pubkey,
+    seeds: &[&[u8]],
+    mint: &AccountInfo<'info>,
+    owner: &AccountInfo<'info>,
+    payer: &AccountInfo<'info>,
+    token_program: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
+) -> Result<()> {
+    require_keys_eq!(
+        account.key(),
+        *expected_key,
+        AgentPadError::InvalidTaxVault
+    );
+    if account.data_len() == 0 {
+        // Space: exactly what Anchor's token `init` computes for this
+        // mint — `ExtensionType::try_calculate_account_len::<Account>`
+        // over the mint's required init account extensions. A plain
+        // v4.3.0 mint (no TransferFeeConfig) needs 165 bytes; a legacy
+        // fee-carrying mint needs 178.
+        let space = {
+            let mint_data = mint.try_borrow_data()?;
+            let mint_state =
+                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)
+                    .map_err(|_| AgentPadError::InvalidMintDecimals)?;
+            let mint_extensions = mint_state.get_extension_types()?;
+            let required =
+                ExtensionType::get_required_init_account_extensions(&mint_extensions);
+            ExtensionType::try_calculate_account_len::<spl_token_2022::state::Account>(
+                &required,
+            )?
+        };
+        let rent = Rent::get()?;
+        if account.lamports() == 0 {
+            let create_ix = system_instruction::create_account(
+                payer.key,
+                account.key,
+                rent.minimum_balance(space),
+                space as u64,
+                token_program.key,
+            );
+            invoke_signed(
+                &create_ix,
+                &[payer.clone(), account.clone()],
+                &[seeds],
+            )?;
+        } else {
+            // Funded-but-uninitialized PDA (e.g. someone transferred SOL
+            // to the deterministic address): fund to rent-exemption,
+            // allocate, assign — the same fallback Anchor's own `init`
+            // uses.
+            let required_lamports = rent
+                .minimum_balance(space)
+                .max(1)
+                .saturating_sub(account.lamports());
+            if required_lamports > 0 {
+                system_program::transfer(
+                    CpiContext::new(
+                        system_program.clone(),
+                        system_program::Transfer {
+                            from: payer.clone(),
+                            to: account.clone(),
+                        },
+                    ),
+                    required_lamports,
+                )?;
+            }
+            let alloc_ix = system_instruction::allocate(account.key, space as u64);
+            invoke_signed(&alloc_ix, &[account.clone()], &[seeds])?;
+            let assign_ix = system_instruction::assign(account.key, token_program.key);
+            invoke_signed(&assign_ix, &[account.clone()], &[seeds])?;
+        }
+        // Same CPI Anchor's token `init` runs: InitializeAccount3
+        // (mint + owner). No rent sysvar needed.
+        let cpi_program = token_program.clone();
+        let accounts = token_interface::InitializeAccount3 {
+            account: account.clone(),
+            mint: mint.clone(),
+            authority: owner.clone(),
+        };
+        let cpi_ctx = CpiContext::new(cpi_program, accounts);
+        token_interface::initialize_account3(cpi_ctx)?;
+    }
+    // Verify the (possibly just created) account with a fresh read:
+    // correct mint + authority = owner.
+    {
+        let data = account.try_borrow_data()?;
+        let state =
+            StateWithExtensions::<spl_token_2022::state::Account>::unpack(&data)
+                .map_err(|_| AgentPadError::InvalidTaxVault)?;
+        require!(
+            state.base.mint == *mint.key,
+            AgentPadError::InvalidTaxVault
+        );
+        require!(
+            state.base.owner == *owner.key,
+            AgentPadError::InvalidTaxVault
+        );
+    }
+    Ok(())
+}
+
+/// Read a Token-2022 token account's balance (raw units) with a fresh
+/// unpack. Used by `swap_with_tax_inner` to measure the swap output.
+fn read_token_amount(account: &AccountInfo) -> Result<u64> {
+    let data = account.try_borrow_data()?;
+    let state = StateWithExtensions::<spl_token_2022::state::Account>::unpack(&data)
+        .map_err(|_| AgentPadError::InvalidTaxVault)?;
+    Ok(state.base.amount)
+}
+
+/// CPI a Raydium CPMM `swap_base_input`. The account order + flags follow
+/// the Raydium CPMM program exactly (same as the SDK's
+/// `createSwapBaseInputIx`): payer (signer), authority, config, pool (w),
+/// input token account (w), output token account (w), input vault (w),
+/// output vault (w), input token program, output token program, input
+/// mint, output mint, observation (w). Data = discriminator + u64
+/// amountIn + u64 amountOutMin. Plain `invoke` (not `invoke_signed`):
+/// the user is the payer/signer and the Raydium authority is not a
+/// signer, so the program needs no signature of its own.
+#[allow(clippy::too_many_arguments)]
+fn invoke_raydium_swap_base_input<'info>(
+    raydium_program: &AccountInfo<'info>,
+    payer: &AccountInfo<'info>,
+    authority: &AccountInfo<'info>,
+    amm_config: &AccountInfo<'info>,
+    pool_state: &AccountInfo<'info>,
+    input_token_account: &AccountInfo<'info>,
+    output_token_account: &AccountInfo<'info>,
+    input_vault: &AccountInfo<'info>,
+    output_vault: &AccountInfo<'info>,
+    input_token_program: &AccountInfo<'info>,
+    output_token_program: &AccountInfo<'info>,
+    input_mint: &AccountInfo<'info>,
+    output_mint: &AccountInfo<'info>,
+    observation: &AccountInfo<'info>,
+    amount_in: u64,
+    amount_out_min: u64,
+) -> Result<()> {
+    let mut ix_data = Vec::with_capacity(24);
+    ix_data.extend_from_slice(&RAYDIUM_SWAP_BASE_INPUT_DISCRIMINATOR);
+    ix_data.extend_from_slice(&amount_in.to_le_bytes());
+    ix_data.extend_from_slice(&amount_out_min.to_le_bytes());
+    let raydium_ix = Instruction {
+        program_id: *raydium_program.key,
+        accounts: vec![
+            AccountMeta::new(*payer.key, true),
+            AccountMeta::new_readonly(*authority.key, false),
+            AccountMeta::new_readonly(*amm_config.key, false),
+            AccountMeta::new(*pool_state.key, false),
+            AccountMeta::new(*input_token_account.key, false),
+            AccountMeta::new(*output_token_account.key, false),
+            AccountMeta::new(*input_vault.key, false),
+            AccountMeta::new(*output_vault.key, false),
+            AccountMeta::new_readonly(*input_token_program.key, false),
+            AccountMeta::new_readonly(*output_token_program.key, false),
+            AccountMeta::new_readonly(*input_mint.key, false),
+            AccountMeta::new_readonly(*output_mint.key, false),
+            AccountMeta::new(*observation.key, false),
+        ],
+        data: ix_data,
+    };
+    // Build the CPI account list on the heap, not the stack (same reason
+    // as `create_raydium_pool_inner`: a 13-element array literal costs
+    // ~700 bytes of stack on its own).
+    let mut cpi_accounts: Vec<AccountInfo> = Vec::with_capacity(13);
+    cpi_accounts.push(payer.clone());
+    cpi_accounts.push(authority.clone());
+    cpi_accounts.push(amm_config.clone());
+    cpi_accounts.push(pool_state.clone());
+    cpi_accounts.push(input_token_account.clone());
+    cpi_accounts.push(output_token_account.clone());
+    cpi_accounts.push(input_vault.clone());
+    cpi_accounts.push(output_vault.clone());
+    cpi_accounts.push(input_token_program.clone());
+    cpi_accounts.push(output_token_program.clone());
+    cpi_accounts.push(input_mint.clone());
+    cpi_accounts.push(output_mint.clone());
+    cpi_accounts.push(observation.clone());
+    invoke(&raydium_ix, &cpi_accounts)?;
+    Ok(())
+}
+
+/// `swap_with_tax` body, extracted so the handler's stack frame stays
+/// under the BPF 4096-byte limit (same reason as
+/// `create_raydium_pool_inner`). Takes only a `&mut` pointer to the
+/// accounts; the Context itself is Boxed onto the heap by the handler.
+fn swap_with_tax_inner<'info>(
+    accounts: &mut SwapWithTax<'info>,
+    program_id: &Pubkey,
+    is_buy: bool,
+    amount_in: u64,
+    amount_out_min: u64,
+) -> Result<()> {
+    require!(amount_in > 0, AgentPadError::InvalidAmount);
+    // v4.3.1 (review item 2): only the real Raydium CPMM programs
+    // (devnet / mainnet ids) may be CPI'd into. The caller passes the
+    // program id; without this a fake program would be used for every
+    // PDA derivation and CPI below.
+    require!(
+        accounts.raydium_program.key() == RAYDIUM_CPMM_PROGRAM_ID_DEVNET
+            || accounts.raydium_program.key() == RAYDIUM_CPMM_PROGRAM_ID_MAINNET,
+        AgentPadError::InvalidRaydiumAccount
+    );
+    // Read the pool state (plain values only; the borrow is dropped
+    // immediately so no borrow is held across the CPIs below).
+    let (mint_key, pool_bump, raydium_pool_id) = {
+        let pool = &accounts.launch_pool;
+        require!(
+            pool.status == LaunchStatus::Graduated,
+            AgentPadError::PoolNotGraduated
+        );
+        require!(
+            pool.raydium_pool_id != Pubkey::default(),
+            AgentPadError::PoolNotGraduated
+        );
+        (pool.mint, pool.bump, pool.raydium_pool_id)
+    };
+    let wsol_key = WSOL_MINT;
+    require!(mint_key != wsol_key, AgentPadError::InvalidTokenOrder);
+    let raydium_program = accounts.raydium_program.key();
+    // Raydium orders the pair by pubkey: token_0 is the smaller one.
+    let token_0_is_platform = mint_key.to_bytes() < wsol_key.to_bytes();
+    let (token_0_mint, token_1_mint) = if token_0_is_platform {
+        (mint_key, wsol_key)
+    } else {
+        (wsol_key, mint_key)
+    };
+    // Verify the Raydium PDAs (same derivations as create_raydium_pool).
+    let (amm_config_key, _) = Pubkey::find_program_address(
+        &[b"amm_config", &RAYDIUM_AMM_CONFIG_INDEX.to_be_bytes()],
+        &raydium_program,
+    );
+    require_keys_eq!(
+        accounts.amm_config.key(),
+        amm_config_key,
+        AgentPadError::InvalidRaydiumAccount
+    );
+    let (authority_key, _) = Pubkey::find_program_address(
+        &[b"vault_and_lp_mint_auth_seed"],
+        &raydium_program,
+    );
+    require_keys_eq!(
+        accounts.raydium_authority.key(),
+        authority_key,
+        AgentPadError::InvalidRaydiumAccount
+    );
+    let (pool_state_key, _) = Pubkey::find_program_address(
+        &[
+            b"pool",
+            amm_config_key.as_ref(),
+            token_0_mint.as_ref(),
+            token_1_mint.as_ref(),
+        ],
+        &raydium_program,
+    );
+    require_keys_eq!(
+        accounts.pool_state.key(),
+        pool_state_key,
+        AgentPadError::InvalidRaydiumAccount
+    );
+    require_keys_eq!(
+        pool_state_key,
+        raydium_pool_id,
+        AgentPadError::InvalidRaydiumAccount
+    );
+    let (vault_0_key, _) = Pubkey::find_program_address(
+        &[b"pool_vault", pool_state_key.as_ref(), token_0_mint.as_ref()],
+        &raydium_program,
+    );
+    let (vault_1_key, _) = Pubkey::find_program_address(
+        &[b"pool_vault", pool_state_key.as_ref(), token_1_mint.as_ref()],
+        &raydium_program,
+    );
+    let (token_vault_key, wsol_vault_key) = if token_0_is_platform {
+        (vault_0_key, vault_1_key)
+    } else {
+        (vault_1_key, vault_0_key)
+    };
+    require_keys_eq!(
+        accounts.token_vault.key(),
+        token_vault_key,
+        AgentPadError::InvalidRaydiumAccount
+    );
+    require_keys_eq!(
+        accounts.wsol_vault.key(),
+        wsol_vault_key,
+        AgentPadError::InvalidRaydiumAccount
+    );
+    let (observation_key, _) = Pubkey::find_program_address(
+        &[b"observation", pool_state_key.as_ref()],
+        &raydium_program,
+    );
+    require_keys_eq!(
+        accounts.observation.key(),
+        observation_key,
+        AgentPadError::InvalidRaydiumAccount
+    );
+    require_keys_eq!(
+        accounts.wsol_mint.key(),
+        wsol_key,
+        AgentPadError::InvalidTokenOrder
+    );
+    // Verify the tax vault PDA + its mint/owner with a fresh read.
+    let tax_info = accounts.tax_vault.to_account_info();
+    let (expected_vault, _) = Pubkey::find_program_address(
+        &[b"tax_vault", mint_key.as_ref()],
+        program_id,
+    );
+    require_keys_eq!(
+        tax_info.key(),
+        expected_vault,
+        AgentPadError::InvalidTaxVault
+    );
+    {
+        let data = tax_info.try_borrow_data()?;
+        let state =
+            StateWithExtensions::<spl_token_2022::state::Account>::unpack(&data)
+                .map_err(|_| AgentPadError::InvalidTaxVault)?;
+        require!(
+            state.base.mint == mint_key,
+            AgentPadError::InvalidTaxVault
+        );
+        require!(
+            state.base.owner == accounts.launch_pool.key(),
+            AgentPadError::InvalidTaxVault
+        );
+    }
+    // Verify the user's token accounts: token account = Token-2022
+    // account for the launch mint owned by the user; WSOL account =
+    // classic SPL Token account for WSOL owned by the user.
+    {
+        let user_key = accounts.user.key();
+        let data = accounts.user_token_account.try_borrow_data()?;
+        let state =
+            StateWithExtensions::<spl_token_2022::state::Account>::unpack(&data)
+                .map_err(|_| AgentPadError::InvalidSwapAccount)?;
+        require!(
+            state.base.mint == mint_key,
+            AgentPadError::InvalidSwapAccount
+        );
+        require!(
+            state.base.owner == user_key,
+            AgentPadError::InvalidSwapAccount
+        );
+    }
+    {
+        let user_key = accounts.user.key();
+        let data = accounts.user_wsol_account.try_borrow_data()?;
+        let state = anchor_spl::token::spl_token::state::Account::unpack(&data)
+            .map_err(|_| AgentPadError::InvalidSwapAccount)?;
+        require!(state.mint == wsol_key, AgentPadError::InvalidSwapAccount);
+        require!(state.owner == user_key, AgentPadError::InvalidSwapAccount);
+    }
+
+    let pool_seeds: &[&[u8]] = &[b"launch_pool", mint_key.as_ref(), &[pool_bump]];
+    if is_buy {
+        // Buy (SOL -> token): the swap output goes to the tax vault, then
+        // 99% is forwarded to the user and 1% stays as tax. Measure the
+        // output by the vault's balance change (the vault may already
+        // hold tax from earlier trades).
+        let balance_before = read_token_amount(&tax_info)?;
+        // Raydium's min applies to the FULL output; the caller passes the
+        // NET min (after the 1% tax), so scale it back up (ceil div).
+        let raydium_min = amount_out_min
+            .checked_mul(10_000)
+            .and_then(|v| v.checked_add(9_899))
+            .and_then(|v| v.checked_div(9_900))
+            .ok_or(AgentPadError::MathOverflow)?;
+        invoke_raydium_swap_base_input(
+            &accounts.raydium_program.to_account_info(),
+            &accounts.user.to_account_info(),
+            &accounts.raydium_authority.to_account_info(),
+            &accounts.amm_config.to_account_info(),
+            &accounts.pool_state.to_account_info(),
+            &accounts.user_wsol_account.to_account_info(),
+            &tax_info,
+            &accounts.wsol_vault.to_account_info(),
+            &accounts.token_vault.to_account_info(),
+            &accounts.token_classic_program.to_account_info(),
+            &accounts.token_program.to_account_info(),
+            &accounts.wsol_mint.to_account_info(),
+            &accounts.mint.to_account_info(),
+            &accounts.observation.to_account_info(),
+            amount_in,
+            raydium_min,
+        )?;
+        let balance_after = read_token_amount(&tax_info)?;
+        let output = balance_after
+            .checked_sub(balance_before)
+            .ok_or(AgentPadError::MathOverflow)?;
+        require!(output > 0, AgentPadError::SwapOutputZero);
+        let tax = output
+            .checked_mul(WRAPPER_TAX_BPS)
+            .ok_or(AgentPadError::MathOverflow)?
+            .checked_div(10_000)
+            .ok_or(AgentPadError::MathOverflow)?;
+        let user_amount = output
+            .checked_sub(tax)
+            .ok_or(AgentPadError::MathOverflow)?;
+        require!(user_amount > 0, AgentPadError::SwapOutputZero);
+        // Forward 99% to the user; the launch pool signs as the tax
+        // vault's owner.
+        token_2022::transfer_checked(
+            CpiContext::new_with_signer(
+                accounts.token_program.to_account_info(),
+                TransferChecked {
+                    from: tax_info,
+                    to: accounts.user_token_account.to_account_info(),
+                    authority: accounts.launch_pool.to_account_info(),
+                    mint: accounts.mint.to_account_info(),
+                },
+                &[pool_seeds],
+            ),
+            user_amount,
+            TOKEN_DECIMALS,
+        )?;
+    } else {
+        // Sell (token -> SOL): move 1% of the input to the tax vault
+        // first (the user signs as the token-account authority), then
+        // swap the remaining 99% and send the SOL to the user's WSOL
+        // account. The frontend unwraps it by closing the account.
+        let tax = amount_in
+            .checked_mul(WRAPPER_TAX_BPS)
+            .ok_or(AgentPadError::MathOverflow)?
+            .checked_div(10_000)
+            .ok_or(AgentPadError::MathOverflow)?;
+        let swap_in = amount_in
+            .checked_sub(tax)
+            .ok_or(AgentPadError::MathOverflow)?;
+        require!(swap_in > 0, AgentPadError::InvalidAmount);
+        if tax > 0 {
+            token_2022::transfer_checked(
+                CpiContext::new(
+                    accounts.token_program.to_account_info(),
+                    TransferChecked {
+                        from: accounts.user_token_account.to_account_info(),
+                        to: tax_info,
+                        authority: accounts.user.to_account_info(),
+                        mint: accounts.mint.to_account_info(),
+                    },
+                ),
+                tax,
+                TOKEN_DECIMALS,
+            )?;
+        }
+        invoke_raydium_swap_base_input(
+            &accounts.raydium_program.to_account_info(),
+            &accounts.user.to_account_info(),
+            &accounts.raydium_authority.to_account_info(),
+            &accounts.amm_config.to_account_info(),
+            &accounts.pool_state.to_account_info(),
+            &accounts.user_token_account.to_account_info(),
+            &accounts.user_wsol_account.to_account_info(),
+            &accounts.token_vault.to_account_info(),
+            &accounts.wsol_vault.to_account_info(),
+            &accounts.token_program.to_account_info(),
+            &accounts.token_classic_program.to_account_info(),
+            &accounts.mint.to_account_info(),
+            &accounts.wsol_mint.to_account_info(),
+            &accounts.observation.to_account_info(),
+            swap_in,
+            amount_out_min,
+        )?;
+    }
+    Ok(())
+}
+
 /// `create_raydium_pool` body, extracted so the handler's stack frame
 /// stays under the BPF 4096-byte limit (see the handler comment). Takes
 /// only a `&mut` pointer to the accounts; the 25-account Context itself
@@ -1385,6 +2132,15 @@ pub mod agentpad {
 fn create_raydium_pool_inner<'info>(
     accounts: &mut CreateRaydiumPool<'info>,
 ) -> Result<()> {
+    // v4.3.1 (review item 2): only the real Raydium CPMM programs
+    // (devnet / mainnet ids) may be CPI'd into. The caller passes the
+    // program id; without this a fake program would be used for every
+    // PDA derivation and CPI below.
+    require!(
+        accounts.raydium_program.key() == RAYDIUM_CPMM_PROGRAM_ID_DEVNET
+            || accounts.raydium_program.key() == RAYDIUM_CPMM_PROGRAM_ID_MAINNET,
+        AgentPadError::InvalidRaydiumAccount
+    );
     // Deserialize the pool up front (launch_pool is UncheckedAccount
     // now). The borrow is dropped immediately; only plain values are
     // kept, so no borrow is held across the CPIs below.
@@ -2335,9 +3091,19 @@ pub struct CreateLaunch<'info> {
     /// handler creates it with a manual SystemProgram CPI and writes the
     /// state itself. PDA + bump are verified in the handler.
     pub dividend_vault_2: Option<AccountInfo<'info>>,
+    /// v4.3.0: tax vault — a Token-2022 token account for the launch mint,
+    /// owned by the launch pool PDA, at PDA seeds [b"tax_vault", mint].
+    /// The `swap_with_tax` wrapper routes 1% of every pool trade's token
+    /// leg here; the crank withdraws it with `withdraw_tax`. Raw
+    /// AccountInfo on purpose (same reason as `lp_token_staging` in
+    /// GraduateToRaydium: Anchor 0.30's token `init` is broken on
+    /// Token-2022 accounts), created by hand in the handler.
+    #[account(mut)]
+    pub tax_vault: AccountInfo<'info>,
     #[account(mut)]
     pub creator: Signer<'info>,
     pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token2022>,
     /// CHECK: Raydium amm_config for index 0 (v4.2.7). Verified in the
     /// handler against its PDA seeds (the owning program is the Raydium
     /// CPMM program); the pool-creation fee is read from its bytes
@@ -2516,6 +3282,77 @@ pub struct HarvestWithheldFees<'info> {
     pub token_program: Program<'info, Token2022>,
 }
 
+/// Accounts for `swap_with_tax` (v4.3.0). The Raydium pool accounts are
+/// plain unchecked accounts whose addresses are verified against
+/// `find_program_address` in the handler (same pattern as
+/// `CreateRaydiumPool`); the user token accounts are raw AccountInfos
+/// verified by unpacking (the WSOL account is classic SPL Token, the
+/// launch-token account is Token-2022 — one struct cannot carry both
+/// `token::` constraints).
+#[derive(Accounts)]
+pub struct SwapWithTax<'info> {
+    #[account(seeds = [b"launch_pool", launch_pool.mint.as_ref()], bump = launch_pool.bump)]
+    pub launch_pool: Account<'info, LaunchPool>,
+    pub mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: PDA [b"tax_vault", mint], verified in the handler
+    /// (address + mint + owner = launch pool).
+    #[account(mut)]
+    pub tax_vault: AccountInfo<'info>,
+    #[account(mut)]
+    pub user: Signer<'info>,
+    /// CHECK: Token-2022 account for the launch mint owned by the user,
+    /// verified by unpacking in the handler.
+    #[account(mut)]
+    pub user_token_account: AccountInfo<'info>,
+    /// CHECK: classic SPL Token account for WSOL owned by the user,
+    /// verified by unpacking in the handler.
+    #[account(mut)]
+    pub user_wsol_account: AccountInfo<'info>,
+    /// CHECK: Must be the WSOL mint, verified in the handler.
+    pub wsol_mint: AccountInfo<'info>,
+    /// CHECK: Raydium CPMM program id (cluster-specific; the SDK passes
+    /// the value from shared/constants.json). PDA derivations in the
+    /// handler use it as the program.
+    pub raydium_program: AccountInfo<'info>,
+    /// CHECK: PDA verified in handler against the Raydium program.
+    pub raydium_authority: AccountInfo<'info>,
+    /// CHECK: PDA verified in handler against the Raydium program.
+    pub amm_config: AccountInfo<'info>,
+    /// CHECK: PDA verified in handler; must equal
+    /// launch_pool.raydium_pool_id.
+    #[account(mut)]
+    pub pool_state: AccountInfo<'info>,
+    /// CHECK: PDA verified in handler (pool vault for the launch token).
+    #[account(mut)]
+    pub token_vault: AccountInfo<'info>,
+    /// CHECK: PDA verified in handler (pool vault for WSOL).
+    #[account(mut)]
+    pub wsol_vault: AccountInfo<'info>,
+    /// CHECK: PDA verified in handler.
+    #[account(mut)]
+    pub observation: AccountInfo<'info>,
+    pub token_program: Program<'info, Token2022>,
+    pub token_classic_program: Program<'info, Token>,
+}
+
+/// Accounts for `withdraw_tax` (v4.3.0): the crank's collection step for
+/// new (wrapper-taxed) launches.
+#[derive(Accounts)]
+pub struct WithdrawTax<'info> {
+    #[account(seeds = [b"launch_pool", launch_pool.mint.as_ref()], bump = launch_pool.bump)]
+    pub launch_pool: Account<'info, LaunchPool>,
+    pub mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: PDA [b"tax_vault", mint], verified in the handler
+    /// (address + mint + owner = launch pool).
+    #[account(mut)]
+    pub tax_vault: AccountInfo<'info>,
+    #[account(mut, token::mint = mint, token::authority = harvester)]
+    pub harvester_token_account: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub harvester: Signer<'info>,
+    pub token_program: Program<'info, Token2022>,
+}
+
 #[derive(Accounts)]
 pub struct ClaimDividend<'info> {
     // Boxed (v4.2.8): init_if_needed on minter_record pushes try_accounts
@@ -2544,18 +3381,16 @@ pub struct ClaimDividend<'info> {
     /// Second dividend vault (v4, dual-asset launches only).
     #[account(mut, seeds = [b"dividend_vault_2", launch_pool.key().as_ref()], bump)]
     pub dividend_vault_2: Option<Account<'info, DividendVault>>,
-    /// Second-asset dividend debt record (v4). NOTE (v4.2.8): init_if_needed
-    /// removed — with init_if_needed on minter_record too, ClaimDividend
-    /// exceeds the 4K stack limit and Box<> triggers an access violation
-    /// in Anchor 0.30. Dual-asset swap buyers cannot claim leg 2 until
-    /// this is re-enabled with a proper stack fix; single-asset (D pool)
-    /// is unaffected. Created on first dual claim.
-    #[account(
-        mut,
-        seeds = [b"minter_reward_2", launch_pool.mint.as_ref(), user.key().as_ref()],
-        bump
-    )]
-    pub minter_reward_2: Option<Account<'info, MinterReward2>>,
+    /// Second-asset dividend debt record (v4). Raw AccountInfo on purpose
+    /// (v4.3.1 fix): a plain Account fails with AccountNotInitialized
+    /// before the handler runs when the record doesn't exist yet, so the
+    /// record could never be created — dual-asset holders could not claim
+    /// at all. Same manual-CPI pattern as minter_record (v4.2.8): the
+    /// handler verifies the PDA and creates it on first dual claim.
+    /// The SDK always passes minterReward2Pda(mint, user) for dual-asset
+    /// pools, so this is Some there; single-asset claims pass the
+    /// PROGRAM_ID placeholder and this resolves to None.
+    pub minter_reward_2: Option<UncheckedAccount<'info>>,
     pub reward_mint_account_2: Option<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
     pub dividend_reward_ata_2: Option<InterfaceAccount<'info, TokenAccount>>,

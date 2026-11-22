@@ -37,7 +37,7 @@
 | 站内买卖 | `CLUSTER === 'devnet'` 时 Raydium 直连；否则走 Jupiter | **主网路径已写好**（`wiring.js:1664` 起，Jupiter flow，注释写明“kept for later”），cluster 一改就启用；Jupiter 公共 API 是主网 only，主网可用 | `frontend/agentpad-wiring.js:1614,1664` |
 | 建池费预估的 RPC | 写死 `Sdk.rpcUrl('devnet')` | 改成 `Sdk.rpcUrl(CLUSTER)`，否则主网预估会去读 devnet 的 amm_config | `frontend/agentpad-wiring.js:1444`（另有 1417/1436 行附近注释提到 devnet 默认 1 SOL，同步改） |
 | Phantom Agent Wallet 支持网络 | 写死 `{ devnet: S.rpcUrl('devnet') }` | 改成主网（`mainnet` + 主网 RPC），否则 Phantom MCP 认不到主网 | `frontend/agentpad-wiring.js:1155` |
-| 意图提示词 | 文案写“（devnet）”、`networkId: "solana:devnet"`、币安 `--binanceChainId CT_501` | 改成主网文案与 `networkId: "solana:mainnet-beta"`；币安主网 chainId 待核实（CT_501 是 devnet 的，主网值不要猜，部署前查 baw 文档/实测确认） | `frontend/agentpad-wiring.js:1431-1434` 及 skill 同款文案 |
+| 意图提示词 | 文案写“（devnet）”、`networkId: "solana:devnet"`、币安 `--binanceChainId CT_501` | 改成主网文案与 `networkId: "solana:mainnet-beta"`；币安主网 chainId 已核实为 CT_501（baw 里 Solana 的唯一链，无 devnet 链；2026-11-23 以 `baw wallet chains` + 模拟走主网状态双重确认） | `frontend/agentpad-wiring.js:1431-1434` 及 skill 同款文案 |
 | 页面文案 | “开发网目前只有 SOL”（分红资产提示）、挑战登录说明里的 `networkId 用 solana:devnet` | 改成主网文案；分红资产提示要按主网白名单 PDA 开通情况写 | `frontend/spacexpad.html:320,575` |
 | skill 文件 | 全篇 devnet（程序已部署到 devnet、devnet 费 1 SOL、`solana:devnet`、devnet SOL 等） | 出主网版 skill（或把 devnet 引用批量改成主网值与主网程序地址、主网 skill 地址） | `agentpad_phase3/skill/SKILL.md`（改后重新生成部署用的 `skill`/`skill.md`） |
 | bundle | 内嵌 `S.CONSTANTS`（cluster、programId、raydium 地址） | `constants.json` 改完后重打 bundle 再部署 | `frontend/agentpad-bundle.js`（`esbuild sdk/browser-entry.mjs`） |
@@ -61,7 +61,7 @@
 - [ ] **平台币 mint 的经济模型（供应/分配）？**
   - **建议：先不急着定。** 平台币不在主网发行的关键路径上（发射流程本身不用它，它的用途还没定）。主网新建 mint 时先保持 0 供应占位（与 devnet 做法一致），等经济模型定了再铸。不要一上来就铸一大笔供应，也不要过早放弃 mint 权限——等模型定了再决定铸多少、怎么分。
 - [ ] **币安主网 chainId？**
-  - **建议：部署前实测核实，不要猜。** CT_501 是 devnet 的，主网值查 baw 文档（`baw contract-call --help`）或币安 Agentic Wallet 文档确认，确认前不要写死。
+  - **已核实（2026-11-23）：CT_501。** `baw wallet chains` 列出 Solana 的唯一链就是 CT_501，无 devnet 链；另以模拟走主网状态双重确认（devnet-only 账户在模拟里报不存在）。OKX 同款为 `solana` / `501`。
 - [ ] **是否保留 devnet 站？**
   - **建议：保留。** devnet 站继续做测试环境，主网站单独部署（单独的 Pages 项目、单独的后端配置），两套互不干扰。以后改动先在 devnet 验证再上主网。
 - [ ] **真实资金准备。**

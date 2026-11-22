@@ -82,4 +82,14 @@ pub enum AgentPadError {
     InsufficientDividendBalance,
     #[msg("Mint does not carry the AgentPad real-time burn transfer hook.")]
     TransferHookNotConfigured,
+    #[msg("Tax vault account is not the expected PDA for this launch mint, or is not a valid Token-2022 account for the launch mint owned by the launch pool.")]
+    InvalidTaxVault,
+    #[msg("A swap account (user token account / WSOL account) does not match the expected mint or owner.")]
+    InvalidSwapAccount,
+    #[msg("The Raydium swap produced zero output tokens.")]
+    SwapOutputZero,
+    #[msg("Amount must be greater than zero.")]
+    InvalidAmount,
+    #[msg("Claim vault is not the pool's associated token account for this mint.")]
+    InvalidClaimVault,
 }

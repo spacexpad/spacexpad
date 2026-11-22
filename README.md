@@ -16,7 +16,7 @@ gate server, the web frontend, and all private keys are not in this repo.
 
 - Program ID: `DMt9jcZTMgHzzZcEngNj8c1Q6ahVdyLACirZwT71NzA6`
 - ProgramData: `64FRm9rvR2kbBN4PEfuUpW8mkYkJPGdN78jctoGKCJmb`
-- Version: v4.2.13 (TransferFee 100 bps, no transfer hook)
+- Version: v4.3.1 in this source. The on-chain program is still v4.3.0 (`.so` 837,608 bytes, sha256 `acaa7ce0…`); the v4.3.1 upgrade is pending. This source builds to 848,648 bytes, sha256 `001b5b13…` — that hash must match the chain after the upgrade lands.
 - Cluster: devnet only. No mainnet deployment exists.
 
 ## Verify the deployed program matches this source
@@ -31,16 +31,21 @@ cargo build-sbf --manifest-path programs/agentpad/Cargo.toml
 # and hash them. The two hashes must match.
 ```
 
-Build notes: Anchor 0.30.1, Rust 1.85.0 for the program build. Do not run a
-full `cargo metadata` on this workspace (it upgrades `Cargo.lock` to v4,
-which the Solana 1.18 BPF toolchain cannot read).
+Build notes: Anchor 0.30.1, Rust 1.82.0 for the program build
+(`cargo-build-sbf --manifest-path programs/agentpad/Cargo.toml`). Do not
+run a full `cargo metadata` on this workspace (it upgrades `Cargo.lock`
+to v4, which the Solana 1.18 BPF toolchain cannot read). `anchor build`
+currently cannot generate the IDL on any installed toolchain
+(ark-bn254's MontFp proc-macro panics on 1.81/1.82/1.85; 1.79 is too
+old for wasm-bindgen), so `idl/agentpad.json` is hand-maintained:
+address + new error entries only (the account list is unchanged).
 
 ## What's in this repo
 
 | Path | What it is |
 | --- | --- |
 | `programs/agentpad/` | The Solana program (Anchor/Rust): `lib.rs`, `state.rs`, `errors.rs`, `constants.rs`. The source of truth. |
-| `idl/agentpad.json` | Anchor IDL for the deployed program. Regenerate with `anchor build` after any program change. |
+| `idl/agentpad.json` | Anchor IDL for the program (hand-maintained while `anchor build` cannot generate it; see build notes). |
 | `sdk/` | JavaScript SDK (`agentpad-sdk.mjs`, `browser-entry.mjs`) for building mint / refund / claim / swap transactions. |
 | `shared/constants.json` | Single source of truth for program id, cluster, tokenomics, fee splits, and the dividend whitelist. |
 | `skill/` | `SKILL.md` — the agent skill for interacting with SpaceXpad (also served at https://spacexpad.xyz/skill.md). |
